@@ -1,0 +1,20 @@
+{
+  "name": "npa-english",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "frontend"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev -w @npa/web",
+    "build": "npm run build -w @npa/web",
+    "typecheck": "npm run typecheck -w @npa/web"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}

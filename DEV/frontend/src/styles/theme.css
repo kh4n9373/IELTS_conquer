@@ -1,0 +1,162 @@
+/* PANXG English brand layer: red and black, heavy Inter Tight, square corners.
+   Loaded after global.css and landing.css so these rules win. */
+:root {
+  --ink: #0c0c0d; --ink-2: #1a1a1c; --ink-3: #303034;
+  --on-ink: #ffffff; --on-ink-muted: #b9b9bf;
+  --paper: #f5f4f2; --paper-2: #e9e7e4; --sheet: #ffffff;
+  --text: #111112; --muted: #5a5a60;
+  --line: rgb(12 12 13 / 0.14); --line-strong: rgb(12 12 13 / 0.34);
+  --mark: #e30b1c; --mark-deep: #e30b1c; --on-mark: #ffffff;
+  --hi: #ffd5d8; --pen: #c8091a; --pen-on-ink: #ff5a66; --pen-soft: #ffe6e8;
+  --serif: 'Inter Tight Variable', Arial, Helvetica, sans-serif;
+  --sans: 'Inter Tight Variable', Arial, Helvetica, sans-serif;
+  --hand: 'Inter Tight Variable', Arial, Helvetica, sans-serif;
+  --shadow-sheet: 0 1px 1px rgb(0 0 0 / 0.06), 0 14px 30px -14px rgb(0 0 0 / 0.26);
+  font-feature-settings: 'ss01' 0;
+}
+body { background: var(--ink); }
+::selection { background: var(--mark); color: #fff; }
+h1, h2, .landing h2, .l-hero h1, .auth-line, .landing .teacher-line, .auth-column h1 { font-weight: 900; letter-spacing: -0.035em; }
+h1 { line-height: 0.98; }
+h2 { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; }
+.landing h2 { font-size: clamp(2.25rem, 4.7vw, 4.25rem); line-height: 1; }
+em, .hero-mark-wrap em, .auth-accent em { font-style: normal; }
+
+/* Labels replace the handwriting */
+.eyebrow, .l-kicker { font-size: 0.8125rem; font-weight: 800; line-height: 1.2; letter-spacing: 0.07em; text-transform: uppercase; transform: none; color: var(--pen); }
+.l-teacher .l-kicker, .hand-note.on-ink { color: var(--pen-on-ink); }
+.hand-note { font-size: 0.875rem; font-weight: 700; }
+.hero-note { font-weight: 800; font-style: italic; font-size: 1em; }
+.auth-note { font-weight: 800; font-style: italic; font-size: 1.0625rem; }
+.teacher-note { font-weight: 700; font-size: 1.25rem; border-radius: 0; rotate: -1.5deg; }
+.try-note strong { font-weight: 900; font-size: 1.375rem; letter-spacing: -0.02em; }
+.switch-state { font-size: 0.875rem; font-weight: 800; }
+.story-verdict { font-weight: 900; letter-spacing: 0.02em; font-size: clamp(1.25rem, 2vw, 1.75rem); padding: 5px 14px; border-radius: 0; }
+
+/* Display and data type */
+.toc-name, .story-steps strong, .soon-list strong, .cover-name, .empty-title, .try-statement, .tally dd { font-weight: 800; letter-spacing: -0.025em; }
+.person-initial { font-weight: 800; font-size: 1rem; }
+.code { font-family: var(--sans); font-weight: 900; color: #fff; letter-spacing: 0.08em; }
+.hero-sheet, .story-page, .try-sheet, .auth-sheet { font-weight: 450; letter-spacing: -0.005em; }
+.hero-sheet .sheet-title, .try-sheet h3 { font-weight: 900; letter-spacing: -0.03em; }
+
+/* Square, poster-like corners */
+button, .button-link, .l-cta, .l-login, .ticket, .choice, .side-sheet > .section, .confirm, .try-panel, .try-sheet, .story-page, .hero-sheet, .auth-sheet, .switch-row { border-radius: 0; }
+.cover { border-radius: 0; }
+.l-story, .l-road { border-radius: 0; }
+.side-sheet > .section { transform: none; }
+.hero-sheet { rotate: 2.5deg; }
+.hero-sheet::before, .story-page::before, .auth-sheet-rule { opacity: 0.75; }
+
+/* White text on every solid red */
+.skip, .notice, .tag-live, .hero-answers i.is-now, .l-cta, .ticket-actions .copy-btn.is-done { color: #fff; }
+.choice:has(input:checked) { color: #fff; border-color: var(--mark); }
+.choice:has(input:checked) .choice-dot { border-color: #fff; }
+.choice:has(input:checked) .choice-dot::after { background: #fff; }
+.check input:checked + .check-box { color: #fff; border-color: var(--mark); }
+.switch input:checked + .switch-track { border-color: var(--mark); }
+.switch input:checked + .switch-track .switch-thumb { background: #fff; }
+.landing :focus-visible { outline-color: #fff; }
+.cover-name { color: #fff; }
+.is-archived .cover-name { color: var(--ink); }
+.hero-mark-wrap { color: #fff; }
+.hero-mark { transform: none; }
+.auth-accent em { color: var(--pen-on-ink); }
+.ticket-actions button.danger { color: #ff9aa2; }
+.cover { border-left: 8px solid var(--mark); }
+.cover::before { display: none; }
+@media (hover: hover) {
+  button:hover:not(:disabled), .button-link:hover { color: #fff; }
+  .toc-row:hover, .toc-row:hover .toc-no, .toc-row:hover .toc-date { color: #fff; }
+  .l-login:hover { color: #fff; }
+  .l-cta:hover { background: #ff2233; }
+}
+
+/* Reading highlights stay soft so passage text remains readable */
+.input-wrap::after { background: var(--hi); opacity: 0.6; }
+.story-page .kw { background-image: linear-gradient(var(--hi), var(--hi)); }
+.try-ev { background-image: linear-gradient(var(--hi), var(--hi)); }
+.auth-sheet mark { background-image: linear-gradient(var(--hi), var(--hi)); }
+.quiet-link { background-image: linear-gradient(var(--hi), var(--hi)); }
+.landing button.try-option.is-answer { color: var(--ink); background: #fff; border-color: #fff; }
+.landing button.try-option.is-wrong { background: var(--mark); border-color: var(--mark); }
+
+/* Logo: the file has a white ground, so it always sits on a white plate */
+.brand { display: inline-flex; align-items: center; background: #fff; padding: 7px 10px; }
+.brand img { display: block; width: 150px; height: auto; }
+.l-nav { position: absolute; background: #fff; padding-block: 8px; }
+.l-nav .brand { padding-inline: 0; }
+.l-nav nav a { color: #3a3a3e; }
+.l-nav nav a:hover { color: var(--ink); }
+.l-login { color: #fff; background: var(--ink); border-color: var(--ink); }
+.page-loader-logo { width: 180px; height: auto; padding: 10px; background: #fff; }
+.auth-brand .brand { padding-inline: 0; }
+
+/* Language control */
+.lang { display: inline-flex; flex: none; border: 1px solid var(--line-strong); font-size: 0.75rem; font-weight: 800; line-height: 1; }
+.lang button { min-width: 38px; min-height: 36px; padding: 0; font-size: inherit; font-weight: inherit; color: var(--muted); background: transparent; border: 0; }
+.lang button::before { background: var(--ink-3); }
+.lang button.on { color: #fff; background: var(--mark); }
+.lang button.on::before { display: none; }
+.lang button:focus-visible { outline: 2px solid var(--pen); outline-offset: 1px; }
+.topbar .lang { border-color: rgb(255 255 255 / 0.3); }
+.topbar .lang button { color: var(--on-ink-muted); }
+.topbar .lang button.on, .topbar .lang button:hover { color: #fff; }
+.topbar .lang button:focus-visible { outline-color: #fff; }
+.l-right { display: flex; align-items: center; gap: 10px; }
+.auth-top { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-bottom: 24px; }
+.auth-top .auth-brand { margin: 0 auto 0 0; }
+
+/* Hero fits the heavier type */
+.l-hero { padding-top: 0; }
+.l-hero h1 { font-size: clamp(3rem, 7.1vw, 7.25rem); }
+.landing .teacher-line { font-size: clamp(3.25rem, 10vw, 10rem); line-height: 0.95; max-width: 12ch; }
+.auth-line { font-size: clamp(2.5rem, 4.8vw, 4.75rem); line-height: 1; }
+
+@media (max-width: 959px) { .l-hero h1 { font-size: clamp(2.75rem, 13.2vw, 6.5rem); } }
+@media (max-width: 860px) {
+}
+@media (max-width: 480px) {
+  .brand img { width: 112px; }
+  .l-login span { display: none; }
+  .l-login { width: 44px; padding-inline: 0; justify-content: center; }
+}
+
+.auth-art > .brand { align-self: flex-start; }
+.landing .teacher-line { max-width: 5.7em; }
+.teacher-note { translate: none; }
+@media (min-width: 960px) { .teacher-note { translate: none; } }
+
+/* Top bar: the active tab touches the logo plate, with no black gap. */
+.topbar { view-transition-name: topbar; position: sticky; top: 0; z-index: 20; display: flex; align-items: stretch; min-height: 64px; color: #fff; background: var(--ink); }
+.topbar > .brand { flex: none; padding: 8px 18px; }
+.top-nav { position: relative; flex: 1 1 auto; min-width: 0; display: flex; }
+.top-block { position: absolute; left: 0; top: 0; background: var(--mark); visibility: hidden; }
+.top-nav a { position: relative; display: flex; align-items: center; gap: 8px; min-height: 64px; padding: 0 18px; color: #fff; font-size: 0.9375rem; font-weight: 800; text-decoration: none; white-space: nowrap; }
+.top-nav a:not(.active):hover { background: var(--ink-3); }
+.top-nav a:focus-visible, .top-link:focus-visible { outline: 2px solid #fff; outline-offset: -3px; }
+.top-tools { flex: none; display: flex; align-items: center; gap: 6px; padding: 0 16px; }
+.top-user { display: grid; padding: 0 8px; line-height: 1.2; text-align: right; }
+.top-user .user { max-width: 160px; color: #fff; font-size: 0.875rem; font-weight: 700; }
+.top-role { color: var(--on-ink-muted); font-size: 0.75rem; }
+.top-link, button.top-link { display: inline-flex; align-items: center; gap: 7px; min-height: 44px; padding: 0 10px; color: #fff; background: transparent; border: 0; font-size: 0.875rem; font-weight: 700; text-decoration: none; }
+button.top-link::before { background: var(--ink-3); }
+a.top-link:hover { background: var(--ink-3); }
+a.top-link.active { background: var(--mark); }
+.page > * { max-width: 1180px; }
+
+@media (max-width: 860px) {
+  .topbar { flex-wrap: wrap; }
+  .topbar > .brand { padding: 6px 12px; }
+  .topbar > .brand img { width: 104px; }
+  .top-nav { flex: 0 0 auto; }
+  .top-nav a { min-height: 52px; padding: 0 12px; font-size: 0.875rem; }
+  .top-nav a .icon, .top-user { display: none; }
+  .top-tools { margin-left: auto; gap: 2px; padding: 0 6px; }
+  .top-link span { display: none; }
+  .top-link, button.top-link { width: 44px; padding: 0; justify-content: center; }
+  .lang button { min-width: 32px; }
+}
+
+/* The heavy display face needs a block box so the red plate always covers the whole class name. */
+.cover-name { display: block; width: fit-content; padding-inline: 0.2em 0.3em; letter-spacing: -0.02em; }
