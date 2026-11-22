@@ -74,3 +74,7 @@
 @keyframes rm-spark { 0%, 100% { opacity: 0.15; transform: scale(0.5) rotate(0deg); } 50% { opacity: 1; transform: scale(1.15) rotate(45deg); } }
 @keyframes rm-breathe { 0%, 100% { opacity: calc(var(--s1) * 0.55); } 50% { opacity: var(--s1); } }
 @keyframes rm-plate { 0%, 100% { box-shadow: 0 0 0 2px var(--mark), 0 0 16px 1px rgb(227 11 28 / 0.28); } 50% { box-shadow: 0 0 0 2px var(--mark), 0 0 34px 6px rgb(227 11 28 / 0.5); } }
+
+/* GitHub Pages preview: finished stops keep their glow but open nothing. */
+.rm-pin.is-static { cursor: default; }
+.rm-link.is-static:hover { translate: none; }

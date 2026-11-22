@@ -4,6 +4,7 @@ import { DrawSVGPlugin } from 'gsap/DrawSVGPlugin';
 import { ScrollToPlugin } from 'gsap/ScrollToPlugin';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { SplitText } from 'gsap/SplitText';
+import { STATIC_PREVIEW } from '../../lib/preview';
 import { useI18n } from '../../lib/i18n';
 import { gsap, reducedMotion, useGSAP } from '../../lib/motion';
 import { Brand, Icon, LangSwitch } from '../../components/ui';
@@ -314,10 +315,12 @@ export default function LandingPage() {
         </nav>
         <div className="l-right">
           <LangSwitch />
-          <Link className="l-login" to="/login" viewTransition aria-label={copy.login}>
-            <span>{copy.login}</span>
-            <Icon name="arrow" size={16} />
-          </Link>
+          {!STATIC_PREVIEW && (
+            <Link className="l-login" to="/login" viewTransition aria-label={copy.login}>
+              <span>{copy.login}</span>
+              <Icon name="arrow" size={16} />
+            </Link>
+          )}
         </div>
       </header>
 
@@ -332,11 +335,20 @@ export default function LandingPage() {
             <div className="hero-foot">
               <p className="hero-sub" data-words data-delay="0.7">{copy.heroSub}</p>
               <div className="hero-actions">
-                <Link className="l-cta" to="/login" viewTransition>
-                  <span>{copy.login}</span>
-                  <Icon name="arrow" />
-                </Link>
-                <a className="l-ghost" href="#try" onClick={(e) => jump(e, 'try')}>{copy.navTry}</a>
+                {STATIC_PREVIEW ? (
+                  <a className="l-cta" href="#try" onClick={(e) => jump(e, 'try')}>
+                    <span>{copy.navTry}</span>
+                    <Icon name="arrow" />
+                  </a>
+                ) : (
+                  <>
+                    <Link className="l-cta" to="/login" viewTransition>
+                      <span>{copy.login}</span>
+                      <Icon name="arrow" />
+                    </Link>
+                    <a className="l-ghost" href="#try" onClick={(e) => jump(e, 'try')}>{copy.navTry}</a>
+                  </>
+                )}
               </div>
             </div>
           </div>

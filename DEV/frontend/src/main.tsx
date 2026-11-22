@@ -13,6 +13,7 @@ import { homeFor, useMe } from './app/session';
 import { RoleGate, Shell } from './app/shell';
 import { ErrorAlert, PageLoader } from './components/ui';
 import { I18nProvider, useI18n } from './lib/i18n';
+import { STATIC_PREVIEW } from './lib/preview';
 import './styles/global.css';
 import './pages/landing/landing.css';
 import './pages/landing/authors.css';
@@ -47,6 +48,7 @@ const router = createBrowserRouter(
   createRoutesFromElements(
     <Route element={<Root />}>
       <Route path="/" element={<RootRedirect />} />
+      {!STATIC_PREVIEW && <>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/forgot-password" element={<ForgotPage />} />
       <Route path="/reset-password" element={<ResetPage />} />
@@ -66,9 +68,11 @@ const router = createBrowserRouter(
           <Route path="/settings" element={<SettingsPage />} />
         </Route>
       </Route>
+      </>}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Route>,
   ),
+  { basename: import.meta.env.BASE_URL },
 );
 
 createRoot(document.getElementById('root')!).render(

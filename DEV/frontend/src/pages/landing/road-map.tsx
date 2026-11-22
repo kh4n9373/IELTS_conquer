@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router';
 import person3 from '../../assets/authors/person3.webp';
 import { Icon } from '../../components/ui';
 import { useI18n } from '../../lib/i18n';
+import { STATIC_PREVIEW } from '../../lib/preview';
 import { gsap } from '../../lib/motion';
 import './road-map.css';
 
@@ -107,7 +108,7 @@ function Road({ layout, onOpen }: { layout: Layout; onOpen: (href: string) => vo
         const href = STOPS[i]?.href;
         const lift2 = Math.max(3, ry * 0.28);
         return (
-          <g key={i} className={`rm-pin${href ? ' is-done' : ''}`} style={{ '--s': `var(--s${i + 1})` } as CSSProperties} onClick={href ? () => onOpen(href) : undefined}>
+          <g key={i} className={`rm-pin${href ? ' is-done' : ''}${STATIC_PREVIEW ? ' is-static' : ''}`} style={{ '--s': `var(--s${i + 1})` } as CSSProperties} onClick={href && !STATIC_PREVIEW ? () => onOpen(href) : undefined}>
             {href && (
               <g className="rm-halo">
                 <ellipse className="rm-ring" cx={x} cy={y} rx={rx} ry={ry} />
@@ -171,13 +172,13 @@ export function RoadMap() {
                 <p>{body}</p>
                 <span className="rm-foot">
                   <span className={`rm-chip is-${tone}`}>{status}</span>
-                  {stop.href && <span className="rm-open">{copy.roadOpen}<Icon name="arrow" size={15} /></span>}
+                  {stop.href && !STATIC_PREVIEW && <span className="rm-open">{copy.roadOpen}<Icon name="arrow" size={15} /></span>}
                 </span>
               </>
             );
             return (
               <li className={`rm-card${stop.href ? ' is-done' : ''}`} style={vars} key={title}>
-                {stop.href ? <Link className="rm-link" to={stop.href} viewTransition>{inner}</Link> : <div className="rm-plain">{inner}</div>}
+                {stop.href && !STATIC_PREVIEW ? <Link className="rm-link" to={stop.href} viewTransition>{inner}</Link> : <div className={stop.href ? 'rm-link is-static' : 'rm-plain'}>{inner}</div>}
               </li>
             );
           })}

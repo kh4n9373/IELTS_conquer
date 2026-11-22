@@ -5,6 +5,7 @@ import person2 from '../../assets/authors/person2.webp';
 import person3 from '../../assets/authors/person3.webp';
 import { Icon } from '../../components/ui';
 import { useI18n } from '../../lib/i18n';
+import { STATIC_PREVIEW } from '../../lib/preview';
 import { gsap, reducedMotion, useGSAP } from '../../lib/motion';
 
 const LETTERS = ['P', 'A', 'N', 'X', 'G'];
@@ -57,6 +58,10 @@ export function AuthorsFooter() {
     tl.fromTo('.au-p2 .au-pose', { yPercent: 102, rotate: -10 }, { yPercent: 0, rotate: 0, duration: 0.78, ease: 'back.out(1.8)' }, 0.72)
       .fromTo('.au-p1 .au-pose', { xPercent: 62, yPercent: 28, rotate: 28, scale: 0.55, autoAlpha: 0 }, { xPercent: 0, yPercent: 0, rotate: 0, scale: 1, autoAlpha: 1, duration: 0.82, ease: 'back.out(1.7)' }, 0.98)
       .fromTo('.au-p3 .au-pose', { yPercent: -18, rotate: -24, scale: 1.75, autoAlpha: 0 }, { yPercent: 0, rotate: 0, scale: 1, autoAlpha: 1, duration: 0.76, ease: 'elastic.out(1, 0.6)' }, 1.32);
+    // Each person lands first, then speaks.
+    ([['.au-b2', 1.42], ['.au-b1', 1.76], ['.au-b3', 2.02]] as const).forEach(([bubble, at]) => {
+      tl.fromTo(bubble, { scale: 0.35, y: 10, autoAlpha: 0 }, { scale: 1, y: 0, autoAlpha: 1, duration: 0.42, ease: 'back.out(2.6)' }, at);
+    });
     intro.current = tl;
 
     gsap.fromTo('.au-p3 .au-idle', { rotate: -2 }, { rotate: 2.4, duration: 2.3, repeat: -1, yoyo: true, ease: 'sine.inOut' });
@@ -100,6 +105,7 @@ export function AuthorsFooter() {
   }, { scope: root });
 
   const pop = contextSafe((selector: string) => {
+    if (intro.current?.isActive()) return; // A tap must not cancel a bubble that is still arriving.
     gsap.to(selector, { keyframes: [{ scale: 1.09, y: -3, duration: 0.11 }, { scale: 1, y: 0, duration: 0.17 }], overwrite: true });
   });
 
@@ -169,10 +175,12 @@ export function AuthorsFooter() {
       <div className="au-in">
         <h2 data-split>{copy.footTitle[0]}<br />{copy.footTitle[1]}</h2>
         <p data-words>{copy.footSub}</p>
-        <Link className="l-cta au-cta" to="/login" viewTransition data-rise>
-          <span>{copy.login}</span>
-          <Icon name="arrow" />
-        </Link>
+        {!STATIC_PREVIEW && (
+          <Link className="l-cta au-cta" to="/login" viewTransition data-rise>
+            <span>{copy.login}</span>
+            <Icon name="arrow" />
+          </Link>
+        )}
         <Author who="au-p3" src={person3} label={copy.authorStudyLabel} calm={calm} onTap={poke} />
         <div className="au-bubble au-b3">{copy.authorStudy}</div>
         <div className="au-stage">

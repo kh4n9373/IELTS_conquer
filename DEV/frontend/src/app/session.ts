@@ -1,10 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { api, ApiError, type Me } from '../lib/api';
+import { STATIC_PREVIEW } from '../lib/preview';
 
 export function useMe() {
   return useQuery({
     queryKey: ['me'],
     queryFn: async () => {
+      if (STATIC_PREVIEW) return null;
       try {
         return await api.get<Me>('/api/me');
       } catch (err) {

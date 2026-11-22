@@ -1,4 +1,4 @@
-/* Landing footer: the PANXG wordmark with its three authors. Speech bubbles are always visible. */
+/* Landing footer: the PANXG wordmark with its three authors. Each person arrives first, then their bubble pops in and stays. */
 .au { container-type: inline-size; position: relative; z-index: 3; min-height: 100svh; display: flex; flex-direction: column; overflow: hidden; color: #fff; background: var(--ink); }
 .au-in { position: relative; flex: 1; display: flex; flex-direction: column; padding: clamp(28px, 4.2cqw, 60px) clamp(16px, 5.6cqw, 80px) 14px; }
 .landing .au h2 { position: relative; z-index: 4; margin: 0 0 14px; font-size: clamp(38px, 5.4cqw, 78px); line-height: 0.98; font-weight: 900; letter-spacing: -0.04em; }
@@ -28,11 +28,11 @@
 
 .au-bubble { position: absolute; z-index: 5; width: max-content; max-width: 260px; padding: 9px 13px; color: #111112; background: #fff; font-size: 15px; line-height: 1.2; font-weight: 800; letter-spacing: -0.01em; box-shadow: 4px 4px 0 var(--mark); pointer-events: none; }
 .au-bubble::after { content: ''; position: absolute; width: 12px; height: 12px; background: #fff; transform: rotate(45deg); }
-.au-b1 { right: 19cqw; bottom: 25.5cqw; }
+.au-b1 { right: 19cqw; bottom: 25.5cqw; transform-origin: calc(100% - 24px) 100%; }
 .au-b1::after { right: 18px; bottom: -5px; }
-.au-b2 { left: 9cqw; bottom: 8cqw; }
+.au-b2 { left: 9cqw; bottom: 8cqw; transform-origin: 20px 100%; }
 .au-b2::after { left: 14px; bottom: -5px; }
-.au-b3 { top: 7cqw; right: 29cqw; }
+.au-b3 { top: 7cqw; right: 29cqw; transform-origin: 100% calc(100% - 18px); }
 .au-b3::after { right: -5px; bottom: 12px; }
 
 .au-meta { position: relative; z-index: 4; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 18px; margin-top: 22px; padding-top: 14px; color: #b9b9bf; font-size: 14px; border-top: 1px solid rgb(255 255 255 / 0.2); }
@@ -48,11 +48,11 @@
   .au-peek { top: -1.3em; left: -0.925em; width: 1.85em; height: 1.85em; clip-path: polygon(-40% -60%, 140% -60%, 140% 75%, 78% 75%, 62% 92%, 55% 71%, 45% 71%, 38% 92%, 22% 75%, -40% 75%); }
   .au-p1 { left: auto; right: -0.1em; margin-left: 0; bottom: 0.6em; width: 1.95em; height: 1.95em; }
   .au-p3 { top: 176px; right: 8px; width: 178px; height: 178px; }
-  .au-b3 { top: 332px; right: 150px; }
+  .au-b3 { top: 332px; right: 150px; transform-origin: calc(100% - 22px) 0; }
   .au-b3::after { right: 16px; bottom: auto; top: -5px; }
   .au-bubble { max-width: 156px; padding: 7px 9px; font-size: 12px; box-shadow: 3px 3px 0 var(--mark); }
-  .au-b2 { left: -20px; bottom: 142px; }
+  .au-b2 { left: -20px; bottom: 142px; transform-origin: 34px 100%; }
   .au-b2::after { left: 28px; }
-  .au-b1 { right: 0; bottom: 268px; }
+  .au-b1 { right: 0; bottom: 268px; transform-origin: calc(100% - 50px) 100%; }
   .au-b1::after { right: 44px; }
 }
