@@ -159,6 +159,26 @@ def test_trailing_larger_number_is_flagged() -> None:
     assert one("23 platform 3").flagged is False
 
 
+@pytest.mark.parametrize("text", ["5 east 5 west", "10 alpha 5 beta", "4 alpha 8 beta 6 gamma"])
+def test_not_larger_numbered_pair_is_flagged(text: str) -> None:
+    drafts = parse_key_lines([line(text)])
+    assert drafts[-1].flagged is True
+
+
+@pytest.mark.parametrize("text", ["4. alpha 8.", "4) alpha 8)", "4 alpha 8:", "4 alpha 8 -", "10 alpha 5."])
+def test_punctuated_trailing_number_is_flagged(text: str) -> None:
+    assert one(text).flagged is True
+
+
+def test_empty_first_column_is_flagged() -> None:
+    assert one("1. 2. beta").flagged is True
+
+
+@pytest.mark.parametrize("text", ["23 platform 3", "23. platform 3", "2 5 km", "2 5"])
+def test_real_numeric_answers_stay_clean(text: str) -> None:
+    assert one(text).flagged is False
+
+
 def test_tfng_value_outside_allowed_set_is_flagged() -> None:
     for value in ("TRUE", "false", "Not Given", "T", "f", "NG"):
         assert fits_question([value], "tfng", None)
@@ -283,6 +303,27 @@ def test_retyping_keeps_review_only_when_identical(h: Harness, t: dict[str, Any]
     assert (rows[1]["origin"], rows[2]["origin"]) == ("manual", "manual")
     assert rows[1]["reviewed_at"] is not None
     assert rows[2]["reviewed_at"] is None
+
+
+def test_empty_reimport_flags_old_draft(h: Harness, t: dict[str, Any]) -> None:
+    tid = make(h, t)
+    put_key(h, t, tid, make_pdf(1, text="1. TRUE"))
+    post(h, t, tid, "import")
+    put_key(h, t, tid, make_pdf(1, text="1."))
+    res = post(h, t, tid, "import")
+    assert res.json == {"filled": 0, "flagged": 1, "kept": 0, "unmatched": 0}
+    row = stored(h, tid)[1]
+    assert (row["answers"], row["flagged"], row["reviewed_at"]) == (["TRUE"], True, None)
+    assert row["source_page"] == 1
+
+
+def test_empty_reimport_leaves_manual_and_reviewed_clean(h: Harness, t: dict[str, Any]) -> None:
+    tid = make(h, t)
+    body = {"items": [{"number": 1, "answers": ["TRUE"]}]}
+    assert h.call(t["a"], "PUT", f"/api/tests/{tid}/key/items", body).status == 200
+    put_key(h, t, tid, make_pdf(1, text="1."))
+    assert post(h, t, tid, "import").json["kept"] == 1
+    assert stored(h, tid)[1]["flagged"] is False
 
 
 def test_import_audit_has_no_answer_text(h: Harness, t: dict[str, Any]) -> None:
@@ -431,6 +472,18 @@ def test_rescan_keeps_reviewed_answers(h: Harness, t: dict[str, Any]) -> None:
     assert rows[1]["answers"] == ["TRUE"]
     assert rows[1]["reviewed_at"] is not None
     assert rows[2]["answers"] == ["FALSE"]
+
+
+def test_empty_rescan_replaces_old_source_region(h: Harness, t: dict[str, Any]) -> None:
+    tid = scanned_test(h, t)
+    post(h, t, tid, "scan")
+    work(h, FakeProvider(result=[scan_page(("1. TRUE", 0.99))]))
+    assert stored(h, tid)[1]["source_bbox"] == list(BBOX)
+    assert post(h, t, tid, "scan").status == 202
+    blank = OcrPage(page=1, text="1.", lines=[OcrLine(text="1.", bbox=None, confidence=0.99)])
+    work(h, FakeProvider(result=[blank]))
+    row = stored(h, tid)[1]
+    assert (row["flagged"], row["source_page"], row["source_bbox"]) == (True, 1, None)
 
 
 def test_worker_skips_provider_when_test_already_locked(h: Harness, t: dict[str, Any]) -> None:

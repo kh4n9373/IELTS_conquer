@@ -20,7 +20,9 @@ BBox = tuple[float, float, float, float]
 START = re.compile(NUMBERED + r"(\S.*)")
 NUMBER_ONLY = re.compile(r"([0-9]{1,3})\s*[.):-]")
 NEXT_PAIR = re.compile(r"\s+" + NUMBERED + r"(?=\S)")
-TRAILING_NUMBER = re.compile(r"\s([0-9]{1,3})\s*$")
+TRAILING_BARE = re.compile(r"\s([0-9]{1,3})\s*$")
+TRAILING_MARKED = re.compile(r"(?:^|\s)[0-9]{1,3}\s*[.):-]\s*$")
+LEADING_MARKED = re.compile(r"[0-9]{1,3}\s*[.):-]\s+\S")
 
 TFNG = {"TRUE", "FALSE", "NOT GIVEN", "T", "F", "NG"}
 YNNG = {"YES", "NO", "NOT GIVEN", "Y", "N", "NG"}
@@ -47,24 +49,38 @@ class KeyDraft:
     bbox: BBox | None
 
 
-def split_pairs(text: str) -> list[tuple[int, str]]:
-    """A later, larger number starts a new pair, so `23 platform 3` stays one answer."""
+def split_pairs(text: str) -> list[tuple[int, str, bool]]:
+    """Returns (number, raw answer, suspect). Only a larger number starts a new pair, so
+    `23 platform 3` stays one answer. A numbered pair that is not larger marks the answer suspect."""
     text = text.strip()
     empty = NUMBER_ONLY.fullmatch(text)
     if empty is not None:
-        return [(int(empty.group(1)), "")]
+        return [(int(empty.group(1)), "", False)]
     match = START.fullmatch(text)
     if match is None:
         return []
-    current, rest, start = int(match.group(1)), match.group(2), 0
-    pairs: list[tuple[int, str]] = []
+    current, rest, start, suspect = int(match.group(1)), match.group(2), 0, False
+    pairs: list[tuple[int, str, bool]] = []
     for found in NEXT_PAIR.finditer(rest):
         number = int(found.group(1))
         if number > current:
-            pairs.append((current, rest[start : found.start()]))
-            current, start = number, found.end()
-    pairs.append((current, rest[start:]))
+            pairs.append((current, rest[start : found.start()], suspect))
+            current, start, suspect = number, found.end(), False
+        else:
+            suspect = True
+    pairs.append((current, rest[start:], suspect))
     return pairs
+
+
+def looks_misread(number: int, raw: str) -> bool:
+    """A number with a separator at either end is a neighbouring question whose answer is missing.
+    A bare trailing number is a real answer (`23 platform 3`) unless it is larger than the question."""
+    bare = TRAILING_BARE.search(raw)
+    return (
+        LEADING_MARKED.match(raw) is not None
+        or TRAILING_MARKED.search(raw) is not None
+        or (bare is not None and int(bare.group(1)) > number)
+    )
 
 
 def clean_answers(raw: str) -> tuple[list[str], bool]:
@@ -93,12 +109,9 @@ def parse_key_lines(lines: list[KeyLine]) -> list[KeyDraft]:
     lines_of: dict[int, set[int]] = {}
     repeated: set[int] = set()
     for index, line in enumerate(lines):
-        for number, raw in split_pairs(line.text):
+        for number, raw, suspect_pair in split_pairs(line.text):
             answers, dropped = clean_answers(raw)
-            # "4 A 8" may be a second column whose answer is missing.
-            trailing = TRAILING_NUMBER.search(raw)
-            orphan = trailing is not None and int(trailing.group(1)) > number
-            flagged = dropped or orphan or low_confidence(line)
+            flagged = dropped or suspect_pair or looks_misread(number, raw) or low_confidence(line)
             lines_of.setdefault(number, set()).add(index)
             if number not in drafts:
                 drafts[number] = KeyDraft(number, answers, flagged, line.page, line.bbox)
@@ -164,6 +177,16 @@ def finite_bbox(bbox: BBox | None) -> BBox | None:
     return bbox if bbox is not None and all(math.isfinite(v) for v in bbox) else None
 
 
+def mark_source(tx: Conn, version_id: UUID, draft: KeyDraft, *, flagged: bool) -> None:
+    bbox = finite_bbox(draft.bbox)
+    tx.execute(
+        """update keys.answer_key_items
+           set flagged = %s, source_page = %s, source_bbox = %s
+           where version_id = %s and question_number = %s""",
+        (flagged, draft.page, None if bbox is None else Jsonb(list(bbox)), version_id, draft.number),
+    )
+
+
 def apply_drafts(tx: Conn, test_id: UUID, drafts: list[KeyDraft], origin: Origin) -> dict[str, int]:
     """The test row must already be locked. Reviewed and manual answers are never overwritten."""
     questions = {
@@ -192,6 +215,9 @@ def apply_drafts(tx: Conn, test_id: UUID, drafts: list[KeyDraft], origin: Origin
             continue
         if not draft.answers:
             counts["flagged"] += 1
+            if current is not None and version is not None:
+                # The new source shows no answer, so the old draft must not look clean.
+                mark_source(tx, version["id"], draft, flagged=True)
             continue
         flagged = draft.flagged or not fits_question(
             draft.answers, question["question_type"], question["word_limit"]
@@ -199,19 +225,7 @@ def apply_drafts(tx: Conn, test_id: UUID, drafts: list[KeyDraft], origin: Origin
         version = version or draft_version(tx, test_id, create=True)
         assert version is not None  # noqa: S101
         upsert_items(tx, version["id"], {draft.number: draft.answers}, origin)
-        bbox = finite_bbox(draft.bbox)
-        tx.execute(
-            """update keys.answer_key_items
-               set flagged = %s, source_page = %s, source_bbox = %s
-               where version_id = %s and question_number = %s""",
-            (
-                flagged,
-                draft.page,
-                None if bbox is None else Jsonb(list(bbox)),
-                version["id"],
-                draft.number,
-            ),
-        )
+        mark_source(tx, version["id"], draft, flagged=flagged)
         counts["filled"] += 1
         counts["flagged"] += int(flagged)
     return counts

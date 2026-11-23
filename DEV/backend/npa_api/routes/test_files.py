@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from ..core.db import Role, with_identity, write_audit
 from ..core.http import CtxDep, GuardedRoute, HttpError, IdentityDep, access, not_found
 from ..core.storage import FileStore
+from ..exams.image import IMAGE_FORMATS, replace_with_pdf
 from ..exams.pdf import PdfInfo, PdfRejected, inspect_pdf
 from .tests import lock_test
 
@@ -96,7 +97,8 @@ async def upload(request: Request, ctx: CtxDep, identity: IdentityDep, test_id: 
     if store is None:
         raise unavailable()
     media_type = request.headers.get("content-type", "").split(";")[0].strip().lower()
-    if media_type != "application/pdf":
+    is_image = kind == "key_source" and media_type in IMAGE_FORMATS
+    if media_type != "application/pdf" and not is_image:
         raise HttpError(415, "not_pdf")
 
     handle, name = tempfile.mkstemp(suffix=".pdf")
@@ -107,6 +109,11 @@ async def upload(request: Request, ctx: CtxDep, identity: IdentityDep, test_id: 
     try:
         size = await receive_body(request, path)
         try:
+            if is_image:
+                await run_in_threadpool(replace_with_pdf, path, media_type)
+                size = path.stat().st_size
+                if size > MAX_BYTES:
+                    raise HttpError(413, "file_too_large")
             info = await run_in_threadpool(inspect_pdf, path)
         except PdfRejected as err:
             raise HttpError(422, err.code) from err
