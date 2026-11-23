@@ -22,8 +22,9 @@ The repository has no application code yet. Checked against the real files:
 | Web | React + Vite SPA, PDF.js, TanStack Query | One server data path makes "no answers in the browser" easy to test |
 | API | FastAPI + Pydantic contracts | Schema-validated requests and, importantly, responses |
 | Database | PostgreSQL with Row-Level Security, plain SQL migrations and the `psycopg` driver | Tenant isolation is enforced below application code. Policies, grants and definer functions are hand-written SQL, so an ORM adds little |
-| Jobs | Procrastinate on PostgreSQL | OCR, regrade and auto-submit without adding Redis |
-| Files | S3-compatible private storage, short-lived signed URLs | NFR-07 |
+| Jobs | M2: a simple PostgreSQL job table (`ocr_jobs`) and the `npa-worker` process. This replaces Procrastinate for M2. Later job types are decided in their own milestones | OCR needs one job type, with no Redis and no extra dependency |
+| Files | Private S3-compatible storage, with MinIO for development. Short-lived signed URLs | NFR-07 |
+| OCR | PaddleOCR hosted API (`PaddleOCR-VL-1.5`), called only by the worker | The student PDF has no text layer. See "M2 storage, worker and OCR" |
 | AI | Anthropic Python SDK, Messages API, our own loop | Full control of hooks, permissions and budgets |
 | Model | `claude-opus-5-5`, set per task in versioned config | Moving a task to a cheaper model is a PO decision backed by eval results |
 | Deploy | Docker Compose, Caddy for TLS, region pending (issue 1) | Enough for the pilot and portable between hosts |
@@ -39,14 +40,23 @@ Browser (React SPA)
 Caddy ──► API (FastAPI) ───────────► PostgreSQL (RLS)
             │    ▲                        ▲
             │    │ scoped tool calls      │
-            │    │                     Worker (Procrastinate)
-            ▼    │                     OCR, key scan, regrade,
-         AI service                    auto-submit, explanations
+            │    │                     Worker (`ocr_jobs` table in M2)
+            ▼    │                     OCR and key scan ──► PaddleOCR
+         AI service                    (hosted, outside this system)
          no DB credentials                │
             │                             ▼
             ▼                       Private file storage
-       Claude API
+       Claude API                   (MinIO in development)
 ```
+
+### M2 storage, worker and OCR
+
+- **Storage:** exam PDFs and key files are kept in private S3-compatible storage. Development uses local MinIO. The browser reads them through signed URLs that last 5 minutes.
+- **Worker queue:** uploading a student PDF adds a `queued` row to `ocr_jobs`. A teacher's key scan adds one for the key file. `npa-worker` claims rows with a lease and retries failures. Procrastinate is not used in M2.
+- **OCR provider:** the worker sends the file to the PaddleOCR hosted API. An OCR failure does not block authoring or publishing.
+- **When files leave the machine:** only when a worker runs. The API and the web app never call PaddleOCR. A queued row is therefore a pending transfer: any worker started later with the provider token will send that file out.
+- **Unconfirmed (lawyer list):** PaddleOCR's retention, training use and processing location. Real exam content must not be sent until these are answered.
+- **Real pilot status:** the real pilot has **not** been sent to OCR. It exists only as a local draft, its queued OCR row was removed, and its answers are unreviewed. A teacher still has to check the page mapping and review the answers.
 
 Hard boundaries, enforced by lint rules and separate credentials:
 
