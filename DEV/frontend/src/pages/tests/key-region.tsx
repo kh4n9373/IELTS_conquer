@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist';
 import { useEffect, useRef, useState } from 'react';
 import { openPdf } from '../../components/pdf-viewer';
+import { ApiError } from '../../lib/api';
 import { useI18n } from '../../lib/i18n';
 import { testsApi } from '../../lib/tests-api';
 
@@ -25,15 +26,23 @@ function withMargin([x0, y0, x1, y1]: Box): Box {
   return [Math.max(0, x0 - MARGIN_X), Math.max(0, y0 - MARGIN_Y), Math.min(1, x1 + MARGIN_X), Math.min(1, y1 + MARGIN_Y)];
 }
 
-type Props = { testId: string; fileRevision: number; number: number | null; page: number | null; bbox: number[] | null };
+type Props = {
+  testId: string;
+  /** The stored file these rows belong to. */
+  revision: string | null;
+  number: number | null;
+  page: number | null;
+  bbox: number[] | null;
+  onFileChanged: () => void;
+};
 
-/** Shows where a stored answer came from. Remounted for each key file; its failures stay in this card. */
-export function KeyRegion({ testId, fileRevision, number, page, bbox }: Props) {
+/** Shows where a stored answer came from. Remounted for each stored file; its failures stay in this card. */
+export function KeyRegion({ testId, revision, number, page, bbox, onFileChanged }: Props) {
   const { t } = useI18n();
-  const wanted = number !== null && page !== null;
+  const wanted = number !== null && page !== null && revision !== null;
   const url = useQuery({
-    queryKey: ['key-source-url', testId, fileRevision],
-    queryFn: () => testsApi.keySourceUrl(testId),
+    queryKey: ['key-source-url', testId, revision],
+    queryFn: () => testsApi.keySourceUrl(testId, revision as string),
     enabled: wanted,
     staleTime: 60_000,
     gcTime: 0,
@@ -46,6 +55,13 @@ export function KeyRegion({ testId, fileRevision, number, page, bbox }: Props) {
   const [width, setWidth] = useState(0);
   const card = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
+
+  // The file moved on while these rows were on screen: fetch the rows that match it.
+  const fileChanged = url.error instanceof ApiError && url.error.code === 'key_source_changed';
+  useEffect(() => {
+    if (fileChanged) onFileChanged();
+    // Once per refusal. The new revision remounts this card.
+  }, [fileChanged]);
 
   const box = usableBox(bbox);
   const target = wanted ? `${number}:${page}:${box?.join(',') ?? 'page'}` : null;

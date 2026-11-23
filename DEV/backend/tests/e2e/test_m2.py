@@ -217,6 +217,23 @@ def test_key_row_shows_its_source_region(servers: None) -> None:
         expect(card).to_contain_text("Vùng gốc của câu 1")
         teacher.wait_for_function(f"({CROP_DARK_PIXELS})() > 5", timeout=15_000)
 
+        # Another tab replaces the file. This file's answer sits lower on the page, where the first file
+        # is blank, so drawing the new box on the old document would show nothing.
+        test_url = re.search(r"/tests/([0-9a-f-]{36})/", teacher.url)
+        assert test_url is not None
+        api = f"{WEB_URL}/api/tests/{test_url.group(1)}"
+        moved = make_pdf(text="Header) Tj ET BT /F1 12 Tf 20 20 Td (1. E")
+        assert teacher.request.put(
+            f"{api}/key-source", data=moved, headers={"content-type": "application/pdf"}
+        ).ok
+        assert teacher.request.post(f"{api}/key/import").ok
+        other = teacher.get_by_label("Đáp án câu 2")
+        other.fill("A")
+        other.blur()
+        expect(imported).to_have_value("E")
+        imported.focus()
+        teacher.wait_for_function(f"({CROP_DARK_PIXELS})() > 5", timeout=5_000)
+
         # A typed answer has no source, and the previous crop must be gone.
         typed = teacher.get_by_label("Đáp án câu 2")
         typed.fill("B")

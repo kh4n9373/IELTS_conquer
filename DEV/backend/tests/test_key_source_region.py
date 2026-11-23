@@ -2,6 +2,7 @@
 
 import json
 import tempfile
+import threading
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -102,11 +103,57 @@ def test_get_key_reports_source_without_storage_key(h: Harness, t: dict[str, Any
     assert h.call(t["a"], "GET", f"/api/tests/{tid}/key").json["source"] is None
     put_key(h, t, tid, make_pdf(pages=2, text=None))
     body = h.call(t["a"], "GET", f"/api/tests/{tid}/key").json
-    assert body["source"] == {"kind": "key_source", "pageCount": 2, "hasTextLayer": False}
-    stored = h.owner_rows(
-        "select storage_key from test_assets where test_id = %s and kind = 'key_source'", (tid,)
-    )[0]["storage_key"]
-    assert stored not in json.dumps(body)
+    asset = h.owner_rows(
+        "select id, storage_key from test_assets where test_id = %s and kind = 'key_source'", (tid,)
+    )[0]
+    assert body["source"] == {
+        "kind": "key_source",
+        "pageCount": 2,
+        "hasTextLayer": False,
+        "revision": str(asset["id"]),
+    }
+    assert asset["storage_key"] not in json.dumps(body)
+    assert body["source"]["revision"] not in asset["storage_key"]
+
+
+def test_revision_changes_with_the_stored_file(h: Harness, t: dict[str, Any]) -> None:
+    tid = make(h, t)
+    put_key(h, t, tid, make_pdf(text="1. A"))
+    first = h.call(t["a"], "GET", f"/api/tests/{tid}/key").json["source"]["revision"]
+    put_key(h, t, tid, make_pdf(text="1. A"))
+    assert h.call(t["a"], "GET", f"/api/tests/{tid}/key").json["source"]["revision"] != first
+
+
+def test_url_for_a_replaced_revision_is_refused(h: Harness, t: dict[str, Any]) -> None:
+    """The page's items and the file it opens must belong together, even if the file just changed."""
+    tid = make(h, t)
+    url = f"/api/tests/{tid}/key-source-url"
+    put_key(h, t, tid, make_pdf(text="1. A"))
+    old = h.call(t["a"], "GET", f"/api/tests/{tid}/key").json["source"]["revision"]
+    assert h.call(t["a"], "GET", f"{url}?revision={old}").status == 200
+    put_key(h, t, tid, make_pdf(text="1. B"))
+    res = h.call(t["a"], "GET", f"{url}?revision={old}")
+    assert (res.status, res.json) == (409, {"error": "key_source_changed"})
+    new = h.call(t["a"], "GET", f"/api/tests/{tid}/key").json["source"]["revision"]
+    assert h.call(t["a"], "GET", f"{url}?revision={new}").status == 200
+    assert h.call(t["b"], "GET", f"{url}?revision={new}").status == 404
+
+
+def test_get_key_waits_for_a_file_swap_in_progress(h: Harness, t: dict[str, Any]) -> None:
+    """Items and revision are read together, so a swap cannot land between the two reads."""
+    tid = make(h, t)
+    put_key(h, t, tid, make_pdf(text="1. A"))
+    results: list[int] = []
+    reader = threading.Thread(
+        target=lambda: results.append(h.call(t["a"], "GET", f"/api/tests/{tid}/key").status)
+    )
+    with h.db.owner_pool.connection() as conn:
+        conn.execute("select 1 from tests where id = %s for update", (tid,))
+        reader.start()
+        reader.join(0.4)
+        assert reader.is_alive()
+    reader.join(5)
+    assert results == [200]
 
 
 # ---- normalized boxes ----

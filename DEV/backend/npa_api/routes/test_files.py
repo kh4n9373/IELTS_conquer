@@ -151,17 +151,21 @@ async def put_key_source(id: UUID, request: Request, ctx: CtxDep, identity: Iden
     return await upload(request, ctx, identity, id, "key_source")
 
 
-def signed_asset(ctx: CtxDep, identity: IdentityDep, test_id: UUID, kind: Kind) -> Any:
+def signed_asset(
+    ctx: CtxDep, identity: IdentityDep, test_id: UUID, kind: Kind, revision: UUID | None = None
+) -> Any:
     with with_identity(ctx.pool, identity) as tx:
         if tx.execute("select 1 from tests where id = %s", (test_id,)).fetchone() is None:
             raise not_found()
         if ctx.store is None:
             raise unavailable()
         asset = tx.execute(
-            "select storage_key from test_assets where test_id = %s and kind = %s", (test_id, kind)
+            "select id, storage_key from test_assets where test_id = %s and kind = %s", (test_id, kind)
         ).fetchone()
     if asset is None:
         raise not_found()
+    if revision is not None and asset["id"] != revision:
+        raise HttpError(409, "key_source_changed")
     url = ctx.store.signed_url(asset["storage_key"], URL_SECONDS)
     return JSONResponse({"url": url, "expiresIn": URL_SECONDS}, headers={"Cache-Control": "no-store"})
 
@@ -174,9 +178,10 @@ def pdf_url(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
 
 @router.get("/api/tests/{id}/key-source-url")
 @access(TEACHER)
-def key_source_url(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
-    """This file holds answers: the URL and storage key are never logged."""
-    return signed_asset(ctx, identity, id, "key_source")
+def key_source_url(id: UUID, ctx: CtxDep, identity: IdentityDep, revision: UUID | None = None) -> Any:
+    """This file holds answers: the URL and storage key are never logged. With `revision`, a file
+    replaced since the caller read its key is refused, so old boxes are never drawn on a new file."""
+    return signed_asset(ctx, identity, id, "key_source", revision)
 
 
 @router.post("/api/tests/{id}/ocr")

@@ -82,13 +82,17 @@ export type KeyItem = {
   sourceBbox: number[] | null;
 };
 export type KeySourceInfo = { kind: 'key_source'; pageCount: number; hasTextLayer: boolean };
+/** `revision` identifies the stored file. It is opaque and unrelated to where the file is kept. */
+export type KeySource = KeySourceInfo & { revision: string };
 export type KeyData = {
   version: number | null;
   approvedAt: string | null;
   items: KeyItem[];
   scan: JobState | null;
-  source: KeySourceInfo | null;
+  source: KeySource | null;
 };
+/** Save responses carry no file identity, so they must never replace the data from `getKey`. */
+export type SavedKey = Pick<KeyData, 'version' | 'approvedAt' | 'items'>;
 export type ImportCounts = { filled: number; flagged: number; kept: number; unmatched: number };
 
 export type StructureSection = {
@@ -120,9 +124,10 @@ export const testsApi = {
   // Answer routes. Only the key editor may call these: preview must never import them.
   getKey: (id: string) => api.get<KeyData>(`${base(id)}/key`),
   putKeyItems: (id: string, body: { items: { number: number; answers: string[] }[] } | { pasted: string }) =>
-    api.put<KeyData>(`${base(id)}/key/items`, body),
-  reviewKey: (id: string, numbers: number[]) => api.post<KeyData>(`${base(id)}/key/review`, { numbers }),
-  keySourceUrl: (id: string) => api.get<{ url: string; expiresIn: number }>(`${base(id)}/key-source-url`),
+    api.put<SavedKey>(`${base(id)}/key/items`, body),
+  reviewKey: (id: string, numbers: number[]) => api.post<SavedKey>(`${base(id)}/key/review`, { numbers }),
+  keySourceUrl: (id: string, revision: string) =>
+    api.get<{ url: string; expiresIn: number }>(`${base(id)}/key-source-url?revision=${encodeURIComponent(revision)}`),
   uploadKeySource: (id: string, file: File) => api.upload<KeySourceInfo>(`${base(id)}/key-source`, file),
   importKey: (id: string) => api.post<ImportCounts>(`${base(id)}/key/import`),
   scanKey: (id: string) => api.post<JobState>(`${base(id)}/key/scan`),

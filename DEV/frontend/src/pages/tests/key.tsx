@@ -27,8 +27,6 @@ export function KeyPage() {
   const [pasted, setPasted] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
-  // Counts replaced files, so a crop can never be drawn from the previous one.
-  const [fileRevision, setFileRevision] = useState(0);
   const [uploading, setUploading] = useState(0);
 
   const refresh = () => {
@@ -83,7 +81,6 @@ export function KeyPage() {
     run(async () => {
       try {
         const info = await testsApi.uploadKeySource(test.id, file);
-        setFileRevision((n) => n + 1);
         if (info.hasTextLayer) {
           const counts: ImportCounts = await testsApi.importKey(test.id);
           setMessage(t.tests.key.imported(counts));
@@ -202,12 +199,13 @@ export function KeyPage() {
           </label>
           <p className="muted">{t.tests.key.fileNote}</p>
           <KeyRegion
-            key={fileRevision}
+            key={source?.revision ?? 'none'}
             testId={test.id}
-            fileRevision={fileRevision}
+            revision={source?.revision ?? null}
             number={uploading > 0 ? null : selected}
-            page={uploading > 0 ? null : selectedItem?.sourcePage ?? null}
-            bbox={uploading > 0 ? null : selectedItem?.sourceBbox ?? null}
+            page={uploading > 0 || !source ? null : selectedItem?.sourcePage ?? null}
+            bbox={uploading > 0 || !source ? null : selectedItem?.sourceBbox ?? null}
+            onFileChanged={() => client.invalidateQueries({ queryKey: keyQuery(test.id) })}
           />
           {source && !source.hasTextLayer && (
             <div className="stack">

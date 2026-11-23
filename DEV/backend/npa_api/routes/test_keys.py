@@ -85,9 +85,10 @@ def key_scan_status(tx: Conn, test_id: UUID) -> dict[str, Any] | None:
 
 
 def key_source_summary(tx: Conn, test_id: UUID) -> dict[str, Any] | None:
-    """What the page needs about the file. The storage key stays on the server."""
+    """What the page needs about the file. `revision` is the asset id; the storage key stays here."""
     return tx.execute(
-        """select kind, page_count as "pageCount", has_text_layer as "hasTextLayer"
+        """select kind, page_count as "pageCount", has_text_layer as "hasTextLayer",
+                  id::text as revision
            from test_assets where test_id = %s and kind = 'key_source'""",
         (test_id,),
     ).fetchone()
@@ -97,7 +98,8 @@ def key_source_summary(tx: Conn, test_id: UUID) -> dict[str, Any] | None:
 @access(TEACHER)
 def get_key(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
     with with_identity(ctx.pool, identity) as tx:
-        if tx.execute("select 1 from tests where id = %s", (id,)).fetchone() is None:
+        # A file swap holds this row for update, so items and revision always describe the same file.
+        if tx.execute("select 1 from tests where id = %s for share", (id,)).fetchone() is None:
             raise not_found()
         return {**load_key(tx, id), "scan": key_scan_status(tx, id), "source": key_source_summary(tx, id)}
 
