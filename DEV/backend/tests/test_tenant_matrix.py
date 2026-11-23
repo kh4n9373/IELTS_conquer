@@ -66,6 +66,7 @@ MATRIX: dict[str, tuple[Any, int | None]] = {
     "GET /api/attempts/{id}": (None, None),
     "GET /api/attempts/{id}/pdf-url": (None, None),
     "PUT /api/attempts/{id}/answers": ({"writerToken": "x", "items": []}, None),
+    "POST /api/attempts/{id}/submit": (None, None),
 }
 
 

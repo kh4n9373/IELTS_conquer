@@ -6,13 +6,23 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import AfterValidator, Field
 
-from ..core.db import Role, with_identity
-from ..core.http import Body, CtxDep, GuardedRoute, HttpError, IdentityDep, access, domain_errors, storable
+from ..core.db import Identity, Role, with_identity
+from ..core.http import (
+    Body,
+    Ctx,
+    CtxDep,
+    GuardedRoute,
+    HttpError,
+    IdentityDep,
+    access,
+    domain_errors,
+    storable,
+)
+from ..grading.settle import GRACE_SECONDS, settle_attempt, settle_if_due
 from .test_files import URL_SECONDS, unavailable
 
 router = APIRouter(route_class=GuardedRoute)
 STUDENT: tuple[Role, ...] = ("student",)
-GRACE_SECONDS = 30
 Text = Annotated[str, AfterValidator(storable)]
 
 
@@ -46,6 +56,7 @@ def start_attempt(id: UUID, body: StartBody, ctx: CtxDep, identity: IdentityDep)
 @router.post("/api/attempts/{id}/claim")
 @access(STUDENT)
 def claim(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
+    settle_if_due(ctx, id)
     with with_identity(ctx.pool, identity) as tx, domain_errors():
         row = tx.execute("select app.attempt_claim(%s, %s) as token", (id, ctx.now())).fetchone()
         assert row is not None  # noqa: S101
@@ -55,6 +66,7 @@ def claim(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
 @router.get("/api/attempts/{id}")
 @access(STUDENT)
 def room(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
+    settle_if_due(ctx, id)
     with with_identity(ctx.pool, identity) as tx, domain_errors():
         row = tx.execute("select app.attempt_room(%s, %s) as room", (id, ctx.now())).fetchone()
         assert row is not None  # noqa: S101
@@ -82,6 +94,7 @@ def save_answers(id: UUID, body: SaveBody, ctx: CtxDep, identity: IdentityDep) -
     items = [
         {"number": i.number, "value": i.value, "marked": i.markedForReview, "seq": i.seq} for i in body.items
     ]
+    settle_if_due(ctx, id)
     now = ctx.now()
     with with_identity(ctx.pool, identity) as tx, domain_errors():
         row = tx.execute(
@@ -98,3 +111,21 @@ def save_answers(id: UUID, body: SaveBody, ctx: CtxDep, identity: IdentityDep) -
         "late": [i["number"] for i in items] if late else [],
         "serverNow": now,
     }
+
+
+def _state(ctx: Ctx, identity: Identity, id: UUID) -> dict[str, Any]:
+    with with_identity(ctx.pool, identity) as tx:
+        row = tx.execute("select status, finalized_at from attempts where id = %s", (id,)).fetchone()
+    if row is None:
+        raise HttpError(404, "not_found")
+    return row
+
+
+@router.post("/api/attempts/{id}/submit")
+@access(STUDENT)
+def submit(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
+    _state(ctx, identity, id)  # 404 for anything that is not the caller's own attempt
+    settle_if_due(ctx, id)
+    settle_attempt(ctx, id, source="student")
+    state = _state(ctx, identity, id)
+    return {"status": state["status"], "finalizedAt": state["finalized_at"]}

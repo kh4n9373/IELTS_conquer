@@ -10,6 +10,7 @@ from .app import build_app
 from .core.db import open_pool
 from .core.mailer import ConsoleMailer
 from .core.storage import FileStore, S3FileStore
+from .grading.settle import SweepThread
 
 
 def is_production() -> bool:
@@ -42,9 +43,15 @@ def create_app() -> FastAPI:
     pool = open_pool(database_url)
 
     @asynccontextmanager
-    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        yield
-        pool.close()
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        # Started here, not in build_app, so tests that build the app never get a background thread.
+        sweeper = SweepThread(app.state.ctx)
+        sweeper.start()
+        try:
+            yield
+        finally:
+            sweeper.stop()
+            pool.close()
 
     return build_app(
         pool=pool,
