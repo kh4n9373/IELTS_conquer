@@ -125,7 +125,9 @@ def test_admin_teacher_class_invite_student_with_tenant_isolation(servers: None)
         teacher.get_by_role("button", name="Tạo mã mời 14 ngày").click()
         code_box = teacher.locator(".code").first
         expect(code_box).to_have_text(re.compile(r"^\s*[A-Z2-9]{8}\s*$"))
-        code = code_box.inner_text().strip()
+        # text_content, not inner_text: the row's entry animation can make rendered text briefly empty.
+        code = (code_box.text_content() or "").strip()
+        assert re.fullmatch(r"[A-Z2-9]{8}", code)
         class_url = teacher.url
 
         student = browser.new_context().new_page()

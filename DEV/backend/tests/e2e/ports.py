@@ -23,8 +23,8 @@ def assert_port_free(port: int) -> None:
             raise PortBusyError(f"Port {port} is already in use") from e
 
 
-def wait_until_port_free(port: int, timeout: float = 30) -> None:
-    """Fail on a busy port, but let the previous module's own sockets finish closing first."""
+def wait_until_port_free(port: int, timeout: float = 90) -> None:
+    """Fail on a busy port, but let the previous module's own sockets leave TIME_WAIT (about 30s on macOS)."""
     deadline = time.monotonic() + timeout
     while True:
         try:
