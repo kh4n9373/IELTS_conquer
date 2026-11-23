@@ -94,9 +94,14 @@ def clean_pages(pages: list[OcrPage], page_count: int) -> list[tuple[int, str]]:
     return out
 
 
-def store_result(pool: Pool, job: Claim, rows: list[tuple[int, str]], now: datetime) -> None:
+def store_result(
+    pool: Pool, job: Claim, test_id: UUID, rows: list[tuple[int, str]], now: datetime
+) -> None:
     """The fence decides: a replaced PDF or a lost lease updates nothing and the result is dropped."""
     with with_identity(pool, job.identity) as tx:
+        # The same lock order as a file swap and `store_key_result`, so they cannot deadlock.
+        if tx.execute("select status from tests where id = %s for update", (test_id,)).fetchone() is None:
+            return
         updated = tx.execute(
             """update ocr_jobs set state = 'done', finished_at = %s, error_code = null, lease_until = null
                where id = %s and state = 'running' and attempts = %s""",
@@ -150,8 +155,15 @@ def store_key_result(pool: Pool, job: Claim, test_id: UUID, lines: list[KeyLine]
                where id = %s and state = 'running' and attempts = %s""",
             (now, job.id, job.attempts),
         ).rowcount
-        if updated == 1:
-            apply_drafts(tx, test_id, drafts, "scan")
+        if updated != 1:
+            return
+        counts, _ = apply_drafts(tx, test_id, drafts, "scan")
+        if not (counts["filled"] or counts["flagged"] or counts["kept"]):
+            # Final, not retried: another paid call on the same file would read the same nothing.
+            tx.execute(
+                "update ocr_jobs set state = 'failed', error_code = 'no_answers_found' where id = %s",
+                (job.id,),
+            )
 
 
 def process(
@@ -169,7 +181,9 @@ def process(
                from test_assets a join tests t on t.id = a.test_id where a.id = %s""",
             (job.asset_id,),
         ).fetchone()
-        if asset is not None and asset["kind"] == "key_source" and asset["status"] != "draft":
+        if asset is not None and (
+            asset["status"] == "archived" or (asset["kind"] == "key_source" and asset["status"] != "draft")
+        ):
             # Stops before the paid provider call.
             fail_locked(tx, job, now())
             return
@@ -210,7 +224,7 @@ def process(
             if asset["kind"] == "key_source":
                 store_key_result(pool, job, asset["test_id"], lines, now())
             else:
-                store_result(pool, job, rows, now())
+                store_result(pool, job, asset["test_id"], rows, now())
             return
         if now() + timedelta(seconds=POLL_SECONDS) > deadline:
             break

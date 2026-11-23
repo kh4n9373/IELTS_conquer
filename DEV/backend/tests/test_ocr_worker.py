@@ -118,26 +118,40 @@ def once(h: Harness, provider: Any, clock: Clock) -> bool:
     return run_once(h.db.app_pool, h.store, provider, clock, sleep=clock.sleep)
 
 
+def approve_student_pdf(h: Harness, tid: str) -> None:
+    """M2 has no route for this. The worker's student path is exercised as a later milestone would use it."""
+    h.owner_rows(
+        """update test_assets set ocr_approved_at = %s, ocr_approved_by = teacher_id
+           where test_id = %s and kind = 'student_pdf'""",
+        (h.now, tid),
+    )
+    h.owner_rows(
+        """insert into ocr_jobs (asset_id, teacher_id)
+           select id, teacher_id from test_assets where test_id = %s and kind = 'student_pdf'""",
+        (tid,),
+    )
+
+
 def setup_job(h: Harness, t: dict[str, Any]) -> tuple[str, Clock]:
     tid = new_test(h, t)
     upload(h, t, tid)
+    approve_student_pdf(h, tid)
     return tid, Clock(h.now)
 
 
-def test_student_upload_enqueues_and_key_source_does_not(h: Harness, t: dict[str, Any]) -> None:
+def test_no_upload_creates_an_ocr_job(h: Harness, t: dict[str, Any]) -> None:
     tid = new_test(h, t)
     upload(h, t, tid, route="key-source")
+    upload(h, t, tid)
     assert h.owner_rows("select count(*) as n from ocr_jobs")[0]["n"] == 0
-    upload(h, t, tid)
-    job = job_of(h, tid)
-    assert (job["state"], job["attempts"]) == ("queued", 0)
 
 
-def test_replacing_pdf_replaces_job(h: Harness, t: dict[str, Any]) -> None:
+def test_replacing_pdf_removes_job_and_approval(h: Harness, t: dict[str, Any]) -> None:
     tid, _ = setup_job(h, t)
-    first = job_of(h, tid)["id"]
     upload(h, t, tid)
-    assert job_of(h, tid)["id"] != first
+    assert h.owner_rows("select count(*) as n from ocr_jobs")[0]["n"] == 0
+    rows = h.owner_rows("select ocr_approved_at from test_assets where test_id = %s", (tid,))
+    assert [r["ocr_approved_at"] for r in rows] == [None]
 
 
 def test_run_once_is_false_when_idle(h: Harness) -> None:
@@ -252,6 +266,7 @@ def test_third_failure_marks_failed_and_publish_still_works(h: Harness, t: dict[
     tid = new_test(h, t, test_type="ielts_standard")
     assert h.call(t["a"], "PUT", f"/api/tests/{tid}/structure", {"sections": structure()}).status == 200
     upload(h, t, tid)
+    approve_student_pdf(h, tid)
     fill(h, t, tid)
     clock = Clock(h.now)
     provider = FakeProvider()
@@ -349,9 +364,10 @@ def test_replaced_pdf_discards_the_result(h: Harness, t: dict[str, Any]) -> None
             return super().pages(status)
 
     assert once(h, Replacing(), clock) is True
-    new = job_of(h, tid)
-    assert new["id"] != old["id"] and new["state"] == "queued"
-    assert texts(h, new["asset_id"]) == [] and texts(h, old["asset_id"]) == []
+    assert h.owner_rows("select count(*) as n from ocr_jobs")[0]["n"] == 0
+    assert texts(h, old["asset_id"]) == []
+    new = h.owner_rows("select id from test_assets where test_id = %s and kind = 'student_pdf'", (tid,))
+    assert texts(h, new[0]["id"]) == []
 
 
 def test_stale_attempt_cannot_write_or_finish(h: Harness, t: dict[str, Any]) -> None:
@@ -495,6 +511,7 @@ def test_worker_loop_processes_a_job_and_sigterm_stops_it_between_jobs(h: Harnes
     first, clock = setup_job(h, t)
     second = new_test(h, t)
     upload(h, t, second)
+    approve_student_pdf(h, second)
 
     class Terminated(FakeProvider):
         def pages(self, status: OcrStatus) -> list[OcrPage]:

@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 from fakes import make_pdf
-from test_exam_keys import items_of, make
+from test_exam_keys import items_of, make, review
 from test_ocr_worker import Clock, FakeProvider
 
 from conftest import Harness
@@ -221,7 +221,7 @@ def test_text_layer_import_never_calls_provider(h: Harness, t: dict[str, Any]) -
     put_key(h, t, tid, make_pdf(1, text="1. TRUE 2. FALSE"))
     res = post(h, t, tid, "import")
     assert res.status == 200
-    assert res.json == {"filled": 2, "flagged": 0, "kept": 0, "unmatched": 0}
+    assert res.json == {"filled": 2, "flagged": 0, "kept": 0, "unmatched": 0, "conflicts": []}
     assert jobs(h, tid) == []
 
 
@@ -239,10 +239,11 @@ def test_import_counts_flagged_unmatched_and_empty(h: Harness, t: dict[str, Any]
     tid = make(h, t)
     put_key(h, t, tid, make_pdf(1, text="1. maybe 2. TRUE 99. Z"))
     res = post(h, t, tid, "import")
-    assert res.json == {"filled": 2, "flagged": 1, "kept": 0, "unmatched": 1}
+    # 99 is no question here, so every answer read from that line is suspect.
+    assert res.json == {"filled": 2, "flagged": 2, "kept": 0, "unmatched": 1, "conflicts": []}
     rows = stored(h, tid)
     assert (rows[1]["answers"], rows[1]["flagged"]) == (["maybe"], True)
-    assert rows[2]["flagged"] is False
+    assert rows[2]["flagged"] is True
     assert 99 not in rows
 
 
@@ -250,10 +251,10 @@ def test_import_keeps_manual_and_reviewed(h: Harness, t: dict[str, Any]) -> None
     tid = make(h, t)
     body = {"items": [{"number": 1, "answers": ["F"]}, {"number": 2, "answers": ["F"]}]}
     assert h.call(t["a"], "PUT", f"/api/tests/{tid}/key/items", body).status == 200
-    h.call(t["a"], "POST", f"/api/tests/{tid}/key/review", {"numbers": [2]})
+    review(h, t, tid, [2])
     put_key(h, t, tid, make_pdf(1, text="1. TRUE 2. TRUE 3. TRUE"))
     res = post(h, t, tid, "import")
-    assert res.json == {"filled": 1, "flagged": 0, "kept": 2, "unmatched": 0}
+    assert res.json == {"filled": 1, "flagged": 0, "kept": 2, "unmatched": 0, "conflicts": [2]}
     rows = stored(h, tid)
     assert (rows[1]["answers"], rows[2]["answers"]) == (["F"], ["F"])
     assert rows[2]["reviewed_at"] is not None
@@ -287,7 +288,7 @@ def test_retyped_identical_value_becomes_manual_and_survives_import(h: Harness, 
     assert stored(h, tid)[1]["origin"] == "manual"
     put_key(h, t, tid, make_pdf(1, text="1. FALSE"))
     res = post(h, t, tid, "import")
-    assert res.json == {"filled": 0, "flagged": 0, "kept": 1, "unmatched": 0}
+    assert res.json == {"filled": 0, "flagged": 0, "kept": 1, "unmatched": 0, "conflicts": []}
     row = stored(h, tid)[1]
     assert (row["answers"], row["origin"]) == (["TRUE"], "manual")
 
@@ -296,7 +297,7 @@ def test_retyping_keeps_review_only_when_identical(h: Harness, t: dict[str, Any]
     tid = make(h, t)
     put_key(h, t, tid, make_pdf(1, text="1. TRUE 2. TRUE"))
     post(h, t, tid, "import")
-    h.call(t["a"], "POST", f"/api/tests/{tid}/key/review", {"numbers": [1, 2]})
+    review(h, t, tid, [1, 2])
     body = {"items": [{"number": 1, "answers": ["TRUE"]}, {"number": 2, "answers": ["FALSE"]}]}
     assert h.call(t["a"], "PUT", f"/api/tests/{tid}/key/items", body).status == 200
     rows = stored(h, tid)
@@ -311,7 +312,7 @@ def test_empty_reimport_flags_old_draft(h: Harness, t: dict[str, Any]) -> None:
     post(h, t, tid, "import")
     put_key(h, t, tid, make_pdf(1, text="1."))
     res = post(h, t, tid, "import")
-    assert res.json == {"filled": 0, "flagged": 1, "kept": 0, "unmatched": 0}
+    assert res.json == {"filled": 0, "flagged": 1, "kept": 0, "unmatched": 0, "conflicts": []}
     row = stored(h, tid)[1]
     assert (row["answers"], row["flagged"], row["reviewed_at"]) == (["TRUE"], True, None)
     assert row["source_page"] == 1
@@ -465,7 +466,7 @@ def test_rescan_keeps_reviewed_answers(h: Harness, t: dict[str, Any]) -> None:
     tid = scanned_test(h, t)
     post(h, t, tid, "scan")
     work(h, FakeProvider(result=[scan_page(("1. TRUE", 0.99), ("2. TRUE", 0.99))]))
-    h.call(t["a"], "POST", f"/api/tests/{tid}/key/review", {"numbers": [1]})
+    review(h, t, tid, [1])
     assert post(h, t, tid, "scan").status == 202
     work(h, FakeProvider(result=[scan_page(("1. FALSE", 0.99), ("2. FALSE", 0.99))]))
     rows = stored(h, tid)

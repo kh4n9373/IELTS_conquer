@@ -129,16 +129,19 @@ def test_teacher_authors_and_publishes_pilot_test(h: Harness) -> None:
     res = call(a, "POST", f"/api/tests/{tid}/publish")
     assert (res.status, res.json["error"]) == (409, "not_ready")
     assert call(a, "PUT", f"/api/tests/{tid}/key/items", {"items": answers()}).status == 200
-    assert call(a, "POST", f"/api/tests/{tid}/key/review", {"numbers": list(range(1, 40))}).status == 200
+    assert call(a, "POST", f"/api/tests/{tid}/key/review", {"items": answers()[:39]}).status == 200
     res = call(a, "POST", f"/api/tests/{tid}/publish")
     assert (res.status, res.json["error"]) == (409, "not_ready")
-    assert call(a, "POST", f"/api/tests/{tid}/key/review", {"numbers": [40]}).status == 200
+    assert call(a, "POST", f"/api/tests/{tid}/key/review", {"items": answers()[39:]}).status == 200
     jobs = h.owner_rows(
-        "select j.state, j.attempts from ocr_jobs j "
-        "join test_assets x on x.id = j.asset_id where x.test_id = %s",
+        "select j.id from ocr_jobs j join test_assets x on x.id = j.asset_id where x.test_id = %s",
         (tid,),
     )
-    assert {(j["state"], j["attempts"]) for j in jobs} <= {("queued", 0)}  # the worker never ran
+    assert jobs == []  # nothing was queued for OCR: no teacher asked for it
+    approved = h.owner_rows(
+        "select 1 from test_assets where test_id = %s and ocr_approved_at is not null", (tid,)
+    )
+    assert approved == []
     published = call(a, "POST", f"/api/tests/{tid}/publish")
     assert published.status == 200
     assert published.json["status"] == "published"

@@ -151,13 +151,18 @@ def asset_summary(tx: Conn, test_id: UUID) -> dict[str, Any] | None:
     ).fetchone()
 
 
+# A row on an unapproved asset can never run, so it is not shown as pending. A finished attempt is
+# still shown: that file may have been sent before approval existed.
+VISIBLE_JOB = "(a.ocr_approved_at is not null or (j.state in ('done', 'failed') and j.attempts > 0))"
+
+
 def ocr_summary(tx: Conn, test_id: UUID) -> dict[str, Any] | None:
     """State and fixed error code only: never OCR text, provider ids or lease data."""
     return tx.execute(
-        """select j.state, j.error_code as "errorCode"
-           from ocr_jobs j join test_assets a on a.id = j.asset_id
-           where a.test_id = %s and a.kind = 'student_pdf'
-           order by j.created_at desc limit 1""",
+        f"""select j.state, j.error_code as "errorCode"
+            from ocr_jobs j join test_assets a on a.id = j.asset_id
+            where a.test_id = %s and a.kind = 'student_pdf' and {VISIBLE_JOB}
+            order by j.created_at desc limit 1""",  # noqa: S608
         (test_id,),
     ).fetchone()
 

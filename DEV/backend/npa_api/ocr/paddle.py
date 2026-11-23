@@ -5,6 +5,7 @@ import json
 import re
 import time
 import uuid
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, NoReturn, cast
 
@@ -22,6 +23,8 @@ TIMEOUT = httpx.Timeout(connect=10, read=60, write=120, pool=10)
 JOB_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 HOSTNAME = re.compile(r"[a-z0-9._-]+")
 STATES: frozenset[str] = frozenset({"pending", "running", "done", "failed"})
+TABLE = re.compile(r"<table\b.*?(?:</table\s*>|\Z)", re.IGNORECASE | re.DOTALL)
+NEWLINE = re.compile(r"\r\n|\r|\n")
 
 
 def fail(code: ErrorCode) -> NoReturn:
@@ -74,6 +77,76 @@ def parse_bbox(value: object, width: object, height: object) -> BBox | None:
         return None
 
 
+class TableText(HTMLParser):
+    """Collects the text of table cells, row by row. Nothing is rendered and no markup is kept."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.rows: list[str] = []
+        self._row: list[str] = []
+        self._cell: list[str] | None = None
+        self._hidden = 0
+
+    def _end_cell(self) -> None:
+        if self._cell is not None:
+            text = " ".join("".join(self._cell).split())
+            if text:
+                self._row.append(text)
+        self._cell = None
+
+    def end_row(self) -> None:
+        self._end_cell()
+        if self._row:
+            self.rows.append(" ".join(self._row))
+        self._row = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in ("script", "style"):
+            self._hidden += 1
+        elif tag == "tr":
+            self.end_row()
+        elif tag in ("td", "th"):
+            self._end_cell()
+            self._cell = []
+        elif tag == "br" and self._cell is not None:
+            self._cell.append(" ")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in ("script", "style"):
+            self._hidden = max(0, self._hidden - 1)
+        elif tag in ("td", "th"):
+            self._end_cell()
+        elif tag in ("tr", "table"):
+            self.end_row()
+
+    def handle_data(self, data: str) -> None:
+        if self._cell is not None and not self._hidden:
+            self._cell.append(data)
+
+
+def table_rows(markup: str) -> list[str]:
+    parser = TableText()
+    parser.feed(markup)
+    parser.close()
+    parser.end_row()
+    return parser.rows
+
+
+def plain_lines(text: str) -> list[str]:
+    return [row.strip() for row in NEWLINE.split(text) if row.strip()]
+
+
+def block_lines(content: str) -> list[str]:
+    """One text line per printed line or table row, in reading order."""
+    out: list[str] = []
+    position = 0
+    for found in TABLE.finditer(content):
+        out += plain_lines(content[position : found.start()])
+        out += table_rows(found.group())
+        position = found.end()
+    return out + plain_lines(content[position:])
+
+
 def parse_page(number: int, raw: object) -> OcrPage:
     if not isinstance(raw, dict):
         fail("bad_result")
@@ -84,13 +157,15 @@ def parse_page(number: int, raw: object) -> OcrPage:
     if not isinstance(blocks, list):
         fail("bad_result")
     lines: list[OcrLine] = []
+    contents: list[str] = []
     for block in blocks:
         if not isinstance(block, dict) or not isinstance(block.get("block_content"), str):
             fail("bad_result")
         # The layout score is not a text confidence, so it is not reported as one.
         box = parse_bbox(block.get("block_bbox"), pruned.get("width"), pruned.get("height"))
-        lines.append(OcrLine(block["block_content"], box, None))
-    return OcrPage(page=number, text="\n".join(line.text for line in lines), lines=lines)
+        contents.append(block["block_content"])
+        lines.extend(OcrLine(text, box, None) for text in block_lines(block["block_content"]))
+    return OcrPage(page=number, text="\n".join(contents), lines=lines)
 
 
 def parse_jsonl(body: bytes) -> list[OcrPage]:

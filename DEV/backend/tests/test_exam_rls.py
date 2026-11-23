@@ -188,6 +188,10 @@ def test_ocr_finish_not_executable_by_teacher_role(db: TestDb, w: World) -> None
 
 def _job(db: TestDb, w: World) -> UUID:
     with db.owner_pool.connection() as conn:
+        conn.execute(
+            "update test_assets set ocr_approved_at = now(), ocr_approved_by = teacher_id where id = %s",
+            (w.asset_a,),
+        )
         row = conn.execute(
             "insert into ocr_jobs (asset_id, teacher_id) values (%s, %s) returning id",
             (w.asset_a, w.a.user_id),

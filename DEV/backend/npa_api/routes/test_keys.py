@@ -12,7 +12,7 @@ from ..core.http import Body, CtxDep, GuardedRoute, HttpError, IdentityDep, acce
 from ..exams.key_import import KeyLine, apply_drafts, parse_key_lines, pdf_lines
 from ..exams.keys import draft_version, normalize_answers, parse_pasted_key, upsert_items
 from ..exams.pdf import PdfRejected
-from .tests import TEACHER, TEST_COLUMNS, blockers_of, lock_test, public
+from .tests import TEACHER, TEST_COLUMNS, VISIBLE_JOB, blockers_of, lock_test, public
 
 router = APIRouter(route_class=GuardedRoute)
 
@@ -38,7 +38,9 @@ class KeyItemsBody(Body):
 
 
 class ReviewBody(Body):
-    numbers: Annotated[list[Number], Field(min_length=1, max_length=MAX_QUESTIONS)]
+    """Each number comes with the answers the teacher saw, so a changed row is never approved."""
+
+    items: Annotated[list[KeyItemBody], Field(min_length=1, max_length=MAX_QUESTIONS)]
 
 
 def parse_items(body: KeyItemsBody) -> dict[int, list[str]]:
@@ -76,12 +78,26 @@ def load_key(tx: Conn, test_id: UUID) -> dict[str, Any]:
 def key_scan_status(tx: Conn, test_id: UUID) -> dict[str, Any] | None:
     """State and fixed error code only: never OCR text, provider ids or lease data."""
     return tx.execute(
-        """select j.state, j.error_code as "errorCode"
-           from ocr_jobs j join test_assets a on a.id = j.asset_id
-           where a.test_id = %s and a.kind = 'key_source'
-           order by j.created_at desc limit 1""",
+        f"""select j.state, j.error_code as "errorCode"
+            from ocr_jobs j join test_assets a on a.id = j.asset_id
+            where a.test_id = %s and a.kind = 'key_source' and {VISIBLE_JOB}
+            order by j.created_at desc limit 1""",  # noqa: S608
         (test_id,),
     ).fetchone()
+
+
+def scan_active(tx: Conn, test_id: UUID) -> bool:
+    """Only an approved file's job can run. Stray rows on an unapproved file block nothing."""
+    return (
+        tx.execute(
+            """select 1 from ocr_jobs j join test_assets a on a.id = j.asset_id
+               where a.test_id = %s and a.kind = 'key_source' and a.ocr_approved_at is not null
+                 and j.state in ('queued', 'running')
+               limit 1""",
+            (test_id,),
+        ).fetchone()
+        is not None
+    )
 
 
 def key_source_summary(tx: Conn, test_id: UUID) -> dict[str, Any] | None:
@@ -129,20 +145,33 @@ def put_key_items(id: UUID, body: KeyItemsBody, ctx: CtxDep, identity: IdentityD
 @router.post("/api/tests/{id}/key/review")
 @access(TEACHER)
 def review_key(id: UUID, body: ReviewBody, ctx: CtxDep, identity: IdentityDep) -> Any:
-    numbers = sorted(set(body.numbers))
+    seen = {item.number: item.answers for item in body.items}
+    if len(seen) != len(body.items):
+        raise INVALID
+    numbers = sorted(seen)
     with with_identity(ctx.pool, identity) as tx:
         lock_test(tx, id, draft=True)
         version = draft_version(tx, id, create=False)
         if version is None:
             raise INVALID
-        updated = tx.execute(
+        if scan_active(tx, id):
+            raise HttpError(409, "ocr_in_progress")
+        rows = tx.execute(
+            """select question_number, answers from keys.answer_key_items
+               where version_id = %s and question_number = any(%s)""",
+            (version["id"], numbers),
+        ).fetchall()
+        stored = {r["question_number"]: r["answers"] for r in rows}
+        if stored.keys() != seen.keys():
+            raise INVALID
+        if stored != seen:
+            raise HttpError(409, "key_changed")  # nothing was written: no partial review
+        tx.execute(
             """update keys.answer_key_items
                set reviewed_at = %s, reviewed_by = %s, flagged = false
                where version_id = %s and question_number = any(%s)""",
             (ctx.now(), identity.user_id, version["id"], numbers),
-        ).rowcount
-        if updated != len(numbers):
-            raise INVALID  # rolls back: no partial review
+        )
         write_audit(
             tx,
             action="key.review",
@@ -171,8 +200,8 @@ def read_key_lines(ctx: CtxDep, storage_key: str) -> list[KeyLine]:
         path = Path(folder) / "key.pdf"
         try:
             ctx.store.get(storage_key, path)
-        except Exception as err:
-            raise HttpError(503, "storage_unavailable") from err
+        except Exception:
+            raise HttpError(503, "storage_unavailable") from None
         try:
             return pdf_lines(path)
         except PdfRejected as err:
@@ -193,10 +222,10 @@ def import_key(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
         lock_test(tx, id, draft=True)
         if key_source(tx, id)["id"] != asset["id"]:
             raise HttpError(409, "key_source_changed")
-        counts = apply_drafts(tx, id, drafts, "text_layer")
+        counts, conflicts = apply_drafts(tx, id, drafts, "text_layer")
         # Counts only: admins can read the audit log but must not see answers.
         write_audit(tx, action="key.import", entity="test", entity_id=id, after=counts)
-    return counts
+    return {**counts, "conflicts": conflicts}
 
 
 @router.post("/api/tests/{id}/key/scan", status_code=202)
@@ -205,20 +234,21 @@ def scan_key(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
     with with_identity(ctx.pool, identity) as tx:
         test = lock_test(tx, id, draft=True)
         asset = key_source(tx, id)
-        if asset["has_text_layer"] is True:
+        if asset["has_text_layer"] is not False:
             raise HttpError(409, "key_has_text_layer")
-        active = tx.execute(
-            "select 1 from ocr_jobs where asset_id = %s and state in ('queued', 'running') for update",
-            (asset["id"],),
-        ).fetchone()
-        if active is not None:
+        if scan_active(tx, id):
             raise HttpError(409, "ocr_in_progress")
         # A new row, not a reset: a stale worker's fence on the old id can then never match.
         tx.execute("delete from ocr_jobs where asset_id = %s", (asset["id"],))
+        # This click is the recorded permission to send this exact stored file to OCR.
+        tx.execute(
+            "update test_assets set ocr_approved_at = %s, ocr_approved_by = %s where id = %s",
+            (ctx.now(), identity.user_id, asset["id"]),
+        )
         tx.execute(
             "insert into ocr_jobs (asset_id, teacher_id) values (%s, %s)", (asset["id"], test["teacher_id"])
         )
-        write_audit(tx, action="key.scan", entity="test", entity_id=id)
+        write_audit(tx, action="key.scan", entity="test", entity_id=id, after={"ocrApproved": True})
     return {"state": "queued", "errorCode": None}
 
 

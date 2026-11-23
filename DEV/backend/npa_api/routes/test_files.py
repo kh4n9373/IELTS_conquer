@@ -68,27 +68,24 @@ def commit_asset(
             (test_id, test["teacher_id"], kind, key, info.sha256, size, info.page_count, info.has_text_layer),
         ).fetchone()
         assert asset is not None  # noqa: S101
+        # Uploading never queues OCR: the new row has no approval, whatever the old file had.
+        after: dict[str, Any] = {"kind": kind, "size": size, "pageCount": info.page_count}
         if kind == "student_pdf":
-            tx.execute(
-                "insert into ocr_jobs (asset_id, teacher_id) values (%s, %s)",
-                (asset["id"], test["teacher_id"]),
-            )
+            after["sha256"] = info.sha256
         else:
-            # Regions point into the old file. Approved versions are immutable and are left alone.
+            # Regions point into the old file, and imported drafts came from it, so unreviewed ones
+            # must be checked again. Approved versions are immutable and are left alone.
             tx.execute(
-                """update keys.answer_key_items i set source_page = null, source_bbox = null
+                """update keys.answer_key_items i
+                   set source_page = null, source_bbox = null,
+                       flagged = i.flagged or (i.origin <> 'manual' and i.reviewed_at is null)
                    from keys.answer_key_versions v
                    where v.id = i.version_id and v.test_id = %s and v.approved_at is null
-                     and (i.source_page is not null or i.source_bbox is not null)""",
+                     and (i.source_page is not null or i.source_bbox is not null
+                          or (i.origin <> 'manual' and i.reviewed_at is null))""",
                 (test_id,),
             )
-        write_audit(
-            tx,
-            action="test.asset_upload",
-            entity="test",
-            entity_id=test_id,
-            after={"kind": kind, "size": size, "pageCount": info.page_count, "sha256": info.sha256},
-        )
+        write_audit(tx, action="test.asset_upload", entity="test", entity_id=test_id, after=after)
     return None if old is None else str(old["storage_key"])
 
 
@@ -126,7 +123,11 @@ async def upload(request: Request, ctx: CtxDep, identity: IdentityDep, test_id: 
             info = await run_in_threadpool(inspect_pdf, path)
         except PdfRejected as err:
             raise HttpError(422, err.code) from err
-        await run_in_threadpool(store.put, key, path)
+        try:
+            await run_in_threadpool(store.put, key, path)
+        except Exception:
+            # The client's error text holds the storage key, so it must not reach the crash log.
+            raise unavailable() from None
         stored = True
         old_key = await run_in_threadpool(commit_asset, ctx, identity, test_id, kind, key, size, info)
         stored = False
@@ -166,7 +167,10 @@ def signed_asset(
         raise not_found()
     if revision is not None and asset["id"] != revision:
         raise HttpError(409, "key_source_changed")
-    url = ctx.store.signed_url(asset["storage_key"], URL_SECONDS)
+    try:
+        url = ctx.store.signed_url(asset["storage_key"], URL_SECONDS)
+    except Exception:
+        raise unavailable() from None
     return JSONResponse({"url": url, "expiresIn": URL_SECONDS}, headers={"Cache-Control": "no-store"})
 
 
@@ -192,10 +196,12 @@ def retry_ocr(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
         if test["status"] == "archived":
             raise HttpError(409, "test_locked")
         asset = tx.execute(
-            "select id from test_assets where test_id = %s and kind = 'student_pdf'", (id,)
+            "select id, ocr_approved_at from test_assets where test_id = %s and kind = 'student_pdf'", (id,)
         ).fetchone()
         if asset is None:
             raise not_found()
+        if asset["ocr_approved_at"] is None:
+            raise HttpError(409, "ocr_not_retryable")  # a retry never creates an unapproved job
         job = tx.execute(
             "select id, state from ocr_jobs where asset_id = %s order by created_at desc limit 1 for update",
             (asset["id"],),

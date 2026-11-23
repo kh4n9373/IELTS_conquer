@@ -67,7 +67,15 @@ def fill(h: Harness, t: dict[str, Any], tid: str, numbers: Any = range(1, 41), r
     numbers = list(numbers)
     assert h.call(t["a"], "PUT", f"/api/tests/{tid}/key/items", key_items(numbers)).status == 200
     if review:
-        assert h.call(t["a"], "POST", f"/api/tests/{tid}/key/review", {"numbers": numbers}).status == 200
+        assert h.call(t["a"], "POST", f"/api/tests/{tid}/key/review", key_items(numbers)).status == 200
+
+
+def review(h: Harness, t: dict[str, Any], tid: str, numbers: Any) -> Any:
+    """Reviews what the teacher would see. A number with no stored row is sent with a placeholder."""
+    rows = h.call(t["a"], "GET", f"/api/tests/{tid}/key").json["items"]
+    shown = {r["number"]: r["answers"] for r in rows}
+    body = {"items": [{"number": n, "answers": shown.get(n, ["none"])} for n in numbers]}
+    return h.call(t["a"], "POST", f"/api/tests/{tid}/key/review", body)
 
 
 def items_of(h: Harness, t: dict[str, Any], tid: str) -> dict[int, dict[str, Any]]:
@@ -132,7 +140,7 @@ def test_publish_blocked_when_one_type_is_missing(h: Harness, t: dict[str, Any])
 def test_publish_blocked_when_one_answer_unreviewed(h: Harness, t: dict[str, Any]) -> None:
     tid = make(h, t)
     fill(h, t, tid, range(1, 41), review=False)
-    h.call(t["a"], "POST", f"/api/tests/{tid}/key/review", {"numbers": list(range(1, 40))})
+    review(h, t, tid, list(range(1, 40)))
     res = publish(h, t, tid)
     assert (res.status, res.json) == (409, {"error": "not_ready", "blockers": ["unreviewed_answer"]})
 
@@ -165,7 +173,7 @@ def test_published_test_rejects_key_and_structure_edits(h: Harness, t: dict[str,
     assert publish(h, t, tid).status == 200
     locked = {"error": "test_locked"}
     assert h.call(t["a"], "PUT", f"/api/tests/{tid}/key/items", key_items([1])).json == locked
-    assert h.call(t["a"], "POST", f"/api/tests/{tid}/key/review", {"numbers": [1]}).json == locked
+    assert review(h, t, tid, [1]).json == locked
     put = h.call(t["a"], "PUT", f"/api/tests/{tid}/structure", {"sections": structure()})
     assert (put.status, put.json) == (409, locked)
     assert publish(h, t, tid).json == locked
@@ -248,10 +256,10 @@ def test_answer_limits_are_inclusive(h: Harness, t: dict[str, Any]) -> None:
 def test_review_requires_stored_items_and_clears_flag(h: Harness, t: dict[str, Any]) -> None:
     tid = make(h, t)
     fill(h, t, tid, [1], review=False)
-    res = h.call(t["a"], "POST", f"/api/tests/{tid}/key/review", {"numbers": [1, 2]})
+    res = review(h, t, tid, [1, 2])
     assert (res.status, res.json) == (400, {"error": "invalid_input"})
     assert items_of(h, t, tid)[1]["reviewed"] is False
-    for bad in ({"numbers": []}, {}, {"numbers": [0]}):
+    for bad in ({"items": []}, {}, {"numbers": [1]}, {"items": [{"number": 0, "answers": ["A"]}]}):
         assert h.call(t["a"], "POST", f"/api/tests/{tid}/key/review", bad).status == 400
     h.owner_rows(
         "update keys.answer_key_items set flagged = true where version_id in "
@@ -259,7 +267,7 @@ def test_review_requires_stored_items_and_clears_flag(h: Harness, t: dict[str, A
         (tid,),
     )
     assert items_of(h, t, tid)[1]["flagged"] is True
-    assert h.call(t["a"], "POST", f"/api/tests/{tid}/key/review", {"numbers": [1]}).status == 200
+    assert review(h, t, tid, [1]).status == 200
     item = items_of(h, t, tid)[1]
     assert (item["flagged"], item["reviewed"]) == (False, True)
 
@@ -365,7 +373,7 @@ def test_other_tenant_and_students_get_nothing(h: Harness, t: dict[str, Any]) ->
     calls = [
         ("GET", f"/api/tests/{tid}/key", None),
         ("PUT", f"/api/tests/{tid}/key/items", key_items([1])),
-        ("POST", f"/api/tests/{tid}/key/review", {"numbers": [1]}),
+        ("POST", f"/api/tests/{tid}/key/review", {"items": [{"number": 1, "answers": ["A"]}]}),
         ("POST", f"/api/tests/{tid}/publish", None),
         ("POST", f"/api/tests/{tid}/archive", None),
     ]

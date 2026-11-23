@@ -51,6 +51,8 @@ class KeyDraft:
     flagged: bool
     page: int | None
     bbox: BBox | None
+    # Every number read from the same line or lines, including this one.
+    line_numbers: frozenset[int] = frozenset()
 
 
 def split_pairs(text: str) -> list[tuple[int, str, bool]]:
@@ -111,9 +113,11 @@ def parse_key_lines(lines: list[KeyLine]) -> list[KeyDraft]:
     """One draft per number. A repeated number keeps its first value and is flagged."""
     drafts: dict[int, KeyDraft] = {}
     lines_of: dict[int, set[int]] = {}
+    numbers_on: dict[int, set[int]] = {}
     repeated: set[int] = set()
     for index, line in enumerate(lines):
         for number, raw, suspect_pair in split_pairs(line.text):
+            numbers_on.setdefault(index, set()).add(number)
             answers, dropped = clean_answers(raw)
             flagged = dropped or suspect_pair or looks_misread(number, raw) or low_confidence(line)
             lines_of.setdefault(number, set()).add(index)
@@ -126,7 +130,11 @@ def parse_key_lines(lines: list[KeyLine]) -> list[KeyDraft]:
     # A repeat can mean a line was split wrongly, so its neighbours on that line are suspect too.
     suspect = {index for number in repeated for index in lines_of[number]}
     return [
-        replace(draft, flagged=draft.flagged or bool(lines_of[number] & suspect))
+        replace(
+            draft,
+            flagged=draft.flagged or bool(lines_of[number] & suspect),
+            line_numbers=frozenset(n for index in lines_of[number] for n in numbers_on[index]),
+        )
         for number, draft in sorted(drafts.items())
     ]
 
@@ -246,8 +254,11 @@ def mark_source(tx: Conn, version_id: UUID, draft: KeyDraft, *, flagged: bool) -
     )
 
 
-def apply_drafts(tx: Conn, test_id: UUID, drafts: list[KeyDraft], origin: Origin) -> dict[str, int]:
-    """The test row must already be locked. Reviewed and manual answers are never overwritten."""
+def apply_drafts(
+    tx: Conn, test_id: UUID, drafts: list[KeyDraft], origin: Origin
+) -> tuple[dict[str, int], list[int]]:
+    """The test row must already be locked. Reviewed and manual answers are never overwritten.
+    Returns the counts and the reviewed questions whose value differs from this source."""
     questions = {
         r["number"]: r
         for r in tx.execute(
@@ -258,11 +269,13 @@ def apply_drafts(tx: Conn, test_id: UUID, drafts: list[KeyDraft], origin: Origin
     existing: dict[int, dict[str, Any]] = {}
     if version is not None:
         rows = tx.execute(
-            "select question_number, origin, reviewed_at from keys.answer_key_items where version_id = %s",
+            """select question_number, origin, reviewed_at, answers
+               from keys.answer_key_items where version_id = %s""",
             (version["id"],),
         ).fetchall()
         existing = {r["question_number"]: r for r in rows}
     counts = {"filled": 0, "flagged": 0, "kept": 0, "unmatched": 0}
+    conflicts: list[int] = []
     for draft in drafts:
         question = questions.get(draft.number)
         if question is None:
@@ -271,6 +284,14 @@ def apply_drafts(tx: Conn, test_id: UUID, drafts: list[KeyDraft], origin: Origin
         current = existing.get(draft.number)
         if current is not None and (current["reviewed_at"] is not None or current["origin"] == "manual"):
             counts["kept"] += 1
+            if current["reviewed_at"] is not None and current["answers"] != draft.answers:
+                assert version is not None  # noqa: S101
+                conflicts.append(draft.number)
+                tx.execute(
+                    """update keys.answer_key_items set flagged = true
+                       where version_id = %s and question_number = %s""",
+                    (version["id"], draft.number),
+                )
             continue
         if not draft.answers:
             counts["flagged"] += 1
@@ -278,8 +299,11 @@ def apply_drafts(tx: Conn, test_id: UUID, drafts: list[KeyDraft], origin: Origin
                 # The new source shows no answer, so the old draft must not look clean.
                 mark_source(tx, version["id"], draft, flagged=True)
             continue
-        flagged = draft.flagged or not fits_question(
-            draft.answers, question["question_type"], question["word_limit"]
+        # A number that is no question here was probably part of an answer, which is now cut short.
+        flagged = (
+            draft.flagged
+            or bool(draft.line_numbers - questions.keys())
+            or not fits_question(draft.answers, question["question_type"], question["word_limit"])
         )
         version = version or draft_version(tx, test_id, create=True)
         assert version is not None  # noqa: S101
@@ -287,4 +311,4 @@ def apply_drafts(tx: Conn, test_id: UUID, drafts: list[KeyDraft], origin: Origin
         mark_source(tx, version["id"], draft, flagged=flagged)
         counts["filled"] += 1
         counts["flagged"] += int(flagged)
-    return counts
+    return counts, conflicts
