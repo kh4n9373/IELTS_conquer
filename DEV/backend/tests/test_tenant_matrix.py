@@ -61,6 +61,11 @@ MATRIX: dict[str, tuple[Any, int | None]] = {
     "PATCH /api/assignments/{id}": ({"maxAttempts": 2}, 404),
     "POST /api/assignments/{id}/cancel": (None, 404),
     "GET /api/my/assignments": (None, None),
+    "POST /api/my/assignments/{id}/attempts": ({"device": "desktop"}, None),
+    "POST /api/attempts/{id}/claim": (None, None),
+    "GET /api/attempts/{id}": (None, None),
+    "GET /api/attempts/{id}/pdf-url": (None, None),
+    "PUT /api/attempts/{id}/answers": ({"writerToken": "x", "items": []}, None),
 }
 
 
@@ -75,10 +80,13 @@ class World:
     teacher_id: str
     test_id: str
     assignment_id: str
+    attempt_id: str = "00000000-0000-4000-8000-000000000001"
 
     def fill(self, url: str) -> str:
         return (
-            url.replace("/api/assignments/{id}", f"/api/assignments/{self.assignment_id}")
+            url.replace("/api/attempts/{id}", f"/api/attempts/{self.attempt_id}")
+            .replace("/api/my/assignments/{id}", f"/api/my/assignments/{self.assignment_id}")
+            .replace("/api/assignments/{id}", f"/api/assignments/{self.assignment_id}")
             .replace("/api/tests/{id}", f"/api/tests/{self.test_id}")
             .replace("/api/invites/{id}", f"/api/invites/{self.invite_id}")
             .replace("/api/admin/teachers/{id}", f"/api/admin/teachers/{self.teacher_id}")

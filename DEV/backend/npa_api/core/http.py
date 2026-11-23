@@ -197,6 +197,14 @@ DOMAIN_ERRORS: dict[str, tuple[int, str]] = {
     "invite_invalid": (404, "not_found"),
     "email_taken": (409, "email_taken"),
     "other_teacher": (409, "other_teacher"),
+    "not_found": (404, "not_found"),
+    "not_open": (409, "not_open"),
+    "closed": (409, "not_open"),
+    "no_attempts_left": (409, "no_attempts_left"),
+    "removed_from_class": (403, "removed_from_class"),
+    "test_archived": (409, "test_archived"),
+    "attempt_closed": (409, "attempt_closed"),
+    "invalid_items": (400, "invalid_input"),
 }
 
 

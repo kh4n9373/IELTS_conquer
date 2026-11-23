@@ -183,6 +183,15 @@ create policy answers_student on attempt_answers for select to npa_student using
 );
 
 -- Student functions. Identity comes from app.user_id(); every one checks it owns the attempt.
+-- A student removed from the class cannot enter again; answers already saved are still graded.
+create function app.still_in_class(p_assignment uuid)
+returns boolean language sql stable security definer set search_path = public, pg_temp as $$
+  select exists (
+    select 1 from assignments g
+    join class_members m on m.class_id = g.class_id and m.student_id = app.user_id() and m.removed_at is null
+    where g.id = p_assignment)
+$$;
+
 create function app.attempt_start(p_assignment uuid, p_now timestamptz, p_device text)
 returns uuid language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -197,10 +206,14 @@ begin
   join assignment_recipients r on r.assignment_id = a.id and r.student_id = v_student
   where a.id = p_assignment for update of a;
   if not found or v_asg.cancelled_at is not null then raise exception 'not_found'; end if;
+  if not app.still_in_class(p_assignment) then raise exception 'removed_from_class'; end if;
   -- Resuming an open attempt is always allowed; its deadline is already fixed.
   select id into v_id from attempts
   where assignment_id = p_assignment and student_id = v_student and status = 'in_progress';
   if found then return v_id; end if;
+  if (select status from tests where id = v_asg.test_id) <> 'published' then
+    raise exception 'test_archived';
+  end if;
   if p_now < v_asg.opens_at then raise exception 'not_open'; end if;
   if p_now >= v_asg.due_at then raise exception 'closed'; end if;
   if (select count(*) from attempts where assignment_id = p_assignment and student_id = v_student)
@@ -221,11 +234,13 @@ end $$;
 -- The device opened last takes the write token; older devices are refused by attempt_save.
 create function app.attempt_claim(p_attempt uuid, p_now timestamptz)
 returns text language plpgsql security definer set search_path = public, pg_temp as $$
-declare v_token text := replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '');
+declare v_token text := replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', ''); v_att attempts;
 begin
-  update attempts set writer_token = v_token
-  where id = p_attempt and student_id = app.user_id() and status = 'in_progress';
+  select * into v_att from attempts where id = p_attempt and student_id = app.user_id() for update;
   if not found then raise exception 'not_found'; end if;
+  if not app.still_in_class(v_att.assignment_id) then raise exception 'removed_from_class'; end if;
+  if v_att.status <> 'in_progress' then raise exception 'attempt_closed'; end if;
+  update attempts set writer_token = v_token where id = p_attempt;
   return v_token;
 end $$;
 
@@ -236,6 +251,7 @@ declare v_att attempts; v_test tests; v_pages int;
 begin
   select * into v_att from attempts where id = p_attempt and student_id = app.user_id();
   if not found then raise exception 'not_found'; end if;
+  if not app.still_in_class(v_att.assignment_id) then raise exception 'removed_from_class'; end if;
   select t.* into v_test from tests t join assignments g on g.test_id = t.id where g.id = v_att.assignment_id;
   select page_count into v_pages from test_assets where test_id = v_test.id and kind = 'student_pdf';
   return jsonb_build_object(
@@ -302,13 +318,15 @@ end $$;
 
 create function app.attempt_pdf_key(p_attempt uuid, p_now timestamptz)
 returns text language plpgsql stable security definer set search_path = public, pg_temp as $$
-declare v_key text;
+declare v_key text; v_att attempts;
 begin
+  select * into v_att from attempts where id = p_attempt and student_id = app.user_id();
+  if not found then raise exception 'not_found'; end if;
+  if not app.still_in_class(v_att.assignment_id) then raise exception 'removed_from_class'; end if;
+  if v_att.status <> 'in_progress' then raise exception 'attempt_closed'; end if;
   select x.storage_key into v_key
-  from attempts a
-  join assignments g on g.id = a.assignment_id
-  join test_assets x on x.test_id = g.test_id and x.kind = 'student_pdf'
-  where a.id = p_attempt and a.student_id = app.user_id() and a.status = 'in_progress';
+  from assignments g join test_assets x on x.test_id = g.test_id and x.kind = 'student_pdf'
+  where g.id = v_att.assignment_id;
   if v_key is null then raise exception 'not_found'; end if;
   return v_key;
 end $$;
@@ -387,6 +405,7 @@ returns jsonb language sql stable security definer set search_path = public, pg_
   from attempts a join assignments g on g.id = a.assignment_id where a.id = p_attempt
 $$;
 
+revoke execute on function app.still_in_class(uuid) from public;
 revoke execute on function
   app.attempt_start(uuid, timestamptz, text), app.attempt_claim(uuid, timestamptz),
   app.attempt_room(uuid, timestamptz), app.attempt_save(uuid, text, jsonb, timestamptz, int),
