@@ -220,11 +220,14 @@ def test_removed_student_cannot_reenter(h: Harness, room: Room) -> None:
                 ("POST", f"/api/attempts/{attempt}/claim"),
                 ("GET", f"/api/attempts/{attempt}"),
                 ("GET", f"/api/attempts/{attempt}/pdf-url"),
+                ("POST", f"/api/attempts/{attempt}/submit"),
             ):
                 res = h.call(
                     s.cookie, method, url, {"device": "desktop"} if url.endswith("attempts") else None
                 )
                 assert (res.status, res.json) == (403, {"error": "removed_from_class"}), url
+            res = save(h, s, attempt, token, item(1, "after", 2))
+            assert (res.status, res.json) == (403, {"error": "removed_from_class"})
         finally:
             h.owner_rows(
                 "update class_members set removed_at = null where class_id = %s and student_id = %s",

@@ -287,6 +287,7 @@ begin
   end if;
   select * into v_att from attempts where id = p_attempt and student_id = app.user_id() for update;
   if not found then raise exception 'not_found'; end if;
+  if not app.still_in_class(v_att.assignment_id) then raise exception 'removed_from_class'; end if;
   if v_att.writer_token is distinct from p_token then
     return jsonb_build_object('status', 'superseded', 'saved', 0, 'late', 0);
   end if;
@@ -314,6 +315,16 @@ begin
     end if;
   end loop;
   return jsonb_build_object('status', v_status, 'saved', v_saved, 'late', v_late);
+end $$;
+
+-- Gate for acting on an own attempt (submit): 404 for anyone else's, 403 once removed from the class.
+create function app.attempt_assert_active(p_attempt uuid)
+returns void language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare v_assignment uuid;
+begin
+  select assignment_id into v_assignment from attempts where id = p_attempt and student_id = app.user_id();
+  if not found then raise exception 'not_found'; end if;
+  if not app.still_in_class(v_assignment) then raise exception 'removed_from_class'; end if;
 end $$;
 
 create function app.attempt_pdf_key(p_attempt uuid, p_now timestamptz)
@@ -409,14 +420,14 @@ revoke execute on function app.still_in_class(uuid) from public;
 revoke execute on function
   app.attempt_start(uuid, timestamptz, text), app.attempt_claim(uuid, timestamptz),
   app.attempt_room(uuid, timestamptz), app.attempt_save(uuid, text, jsonb, timestamptz, int),
-  app.attempt_pdf_key(uuid, timestamptz), app.attempt_lock_for_grading(uuid),
+  app.attempt_pdf_key(uuid, timestamptz), app.attempt_assert_active(uuid), app.attempt_lock_for_grading(uuid),
   app.attempt_due(timestamptz, int), app.attempt_store_grade(uuid, text, timestamptz, jsonb, jsonb),
   app.attempt_result_row(uuid)
   from public;
 grant execute on function
   app.attempt_start(uuid, timestamptz, text), app.attempt_claim(uuid, timestamptz),
   app.attempt_room(uuid, timestamptz), app.attempt_save(uuid, text, jsonb, timestamptz, int),
-  app.attempt_pdf_key(uuid, timestamptz)
+  app.attempt_pdf_key(uuid, timestamptz), app.attempt_assert_active(uuid)
   to npa_student;
 grant execute on function
   app.attempt_lock_for_grading(uuid), app.attempt_due(timestamptz, int),

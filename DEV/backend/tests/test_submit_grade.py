@@ -184,6 +184,8 @@ def test_removed_student_saved_answers_still_graded(h: Harness, room: Room) -> N
     with h.later(hours=2, minutes=5):
         assert h.call(s.cookie, "POST", f"/api/attempts/{attempt}/claim").status == 403
         assert h.call(s.cookie, "GET", f"/api/attempts/{attempt}").status == 403
+        assert h.call(s.cookie, "POST", f"/api/attempts/{attempt}/submit").status == 403
+        assert status(h, attempt) == "in_progress"
     with h.later(hours=3, minutes=5):
         assert sweep_once(ctx(h)) == 1
     assert status(h, attempt) == "auto_submitted" and runs(h, attempt)[0]["correct"] == 1

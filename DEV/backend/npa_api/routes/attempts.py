@@ -124,7 +124,8 @@ def _state(ctx: Ctx, identity: Identity, id: UUID) -> dict[str, Any]:
 @router.post("/api/attempts/{id}/submit")
 @access(STUDENT)
 def submit(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
-    _state(ctx, identity, id)  # 404 for anything that is not the caller's own attempt
+    with with_identity(ctx.pool, identity) as tx, domain_errors():
+        tx.execute("select app.attempt_assert_active(%s)", (id,))  # 404 not own, 403 removed
     settle_if_due(ctx, id)
     settle_attempt(ctx, id, source="student")
     state = _state(ctx, identity, id)
