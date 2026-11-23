@@ -1,5 +1,6 @@
 """Turns key text into draft answers. Everything imported stays unreviewed until a teacher checks it."""
 
+import ctypes
 import math
 import re
 from dataclasses import dataclass, replace
@@ -8,14 +9,17 @@ from typing import Any
 from uuid import UUID
 
 import pypdfium2 as pdfium
+import pypdfium2.raw as pdfium_c
 from psycopg.types.json import Jsonb
 
 from ..core.db import Conn
 from .keys import NUMBERED, Origin, draft_version, normalize_answers, upsert_items
 from .pdf import PdfRejected
+from .regions import BBox, fraction_box
 
 MIN_CONFIDENCE = 0.90
-BBox = tuple[float, float, float, float]
+# PDFium maps points to whole device pixels, so a large virtual page keeps the fractions precise.
+DEVICE_SIZE = 1_000_000
 
 START = re.compile(NUMBERED + r"(\S.*)")
 NUMBER_ONLY = re.compile(r"([0-9]{1,3})\s*[.):-]")
@@ -148,8 +152,64 @@ def fits_question(answers: list[str], kind: str, word_limit: int | None) -> bool
     )
 
 
+def to_device(page: pdfium.PdfPage, x: float, y: float) -> tuple[int, int] | None:
+    """Uses the page's own display matrix, which already applies its rotation and CropBox."""
+    device_x, device_y = ctypes.c_int(), ctypes.c_int()
+    done = pdfium_c.FPDF_PageToDevice(
+        page.raw, 0, 0, DEVICE_SIZE, DEVICE_SIZE, 0, x, y, ctypes.byref(device_x), ctypes.byref(device_y)
+    )
+    return (device_x.value, device_y.value) if done else None
+
+
+def char_corners(
+    page: pdfium.PdfPage, textpage: pdfium.PdfTextPage, index: int
+) -> list[tuple[int, int]] | None:
+    left, right, bottom, top = ctypes.c_double(), ctypes.c_double(), ctypes.c_double(), ctypes.c_double()
+    found = pdfium_c.FPDFText_GetCharBox(
+        textpage.raw, index, ctypes.byref(left), ctypes.byref(right), ctypes.byref(bottom), ctypes.byref(top)
+    )
+    if not found or not all(math.isfinite(v.value) for v in (left, right, bottom, top)):
+        return None
+    first = to_device(page, left.value, top.value)
+    second = to_device(page, right.value, bottom.value)
+    return None if first is None or second is None else [first, second]
+
+
+def line_box(
+    page: pdfium.PdfPage, textpage: pdfium.PdfTextPage, text: str, start: int, end: int
+) -> BBox | None:
+    """The union of the printed characters in text[start:end], or None if any cannot be placed."""
+    points: list[tuple[int, int]] = []
+    for index in range(start, end):
+        if text[index].isspace() or pdfium_c.FPDFText_IsGenerated(textpage.raw, index) == 1:
+            continue
+        corners = char_corners(page, textpage, index)
+        if corners is None:
+            return None
+        points.extend(corners)
+    if not points:
+        return None
+    xs, ys = [x for x, _ in points], [y for _, y in points]
+    return fraction_box(min(xs), min(ys), max(xs), max(ys), DEVICE_SIZE, DEVICE_SIZE)
+
+
+def page_lines(page: pdfium.PdfPage, textpage: pdfium.PdfTextPage, number: int) -> list[KeyLine]:
+    text = textpage.get_text_range()
+    # Character indexes only match the string when both count the same units (not so for emoji).
+    aligned = textpage.count_chars() == len(text)
+    out: list[KeyLine] = []
+    start = 0
+    for row, raw in zip(text.splitlines(), text.splitlines(keepends=True), strict=True):
+        end = start + len(raw)
+        if row.strip():
+            box = line_box(page, textpage, text, start, end) if aligned else None
+            out.append(KeyLine(row, number, box, None))
+        start = end
+    return out
+
+
 def pdf_lines(path: Path) -> list[KeyLine]:
-    """Reads the text layer locally. Text lines carry a page but no box or confidence."""
+    """Reads the text layer locally. Lines carry a page and, when it can be placed, a box."""
     out: list[KeyLine] = []
     try:
         document = pdfium.PdfDocument(str(path))
@@ -159,12 +219,11 @@ def pdf_lines(path: Path) -> list[KeyLine]:
                 try:
                     textpage = page.get_textpage()
                     try:
-                        text = textpage.get_text_range()
+                        out.extend(page_lines(page, textpage, index + 1))
                     finally:
                         textpage.close()
                 finally:
                     page.close()
-                out.extend(KeyLine(row, index + 1, None, None) for row in text.splitlines() if row.strip())
         finally:
             document.close()
     except pdfium.PdfiumError as err:

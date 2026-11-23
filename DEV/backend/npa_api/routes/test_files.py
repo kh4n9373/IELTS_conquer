@@ -73,6 +73,15 @@ def commit_asset(
                 "insert into ocr_jobs (asset_id, teacher_id) values (%s, %s)",
                 (asset["id"], test["teacher_id"]),
             )
+        else:
+            # Regions point into the old file. Approved versions are immutable and are left alone.
+            tx.execute(
+                """update keys.answer_key_items i set source_page = null, source_bbox = null
+                   from keys.answer_key_versions v
+                   where v.id = i.version_id and v.test_id = %s and v.approved_at is null
+                     and (i.source_page is not null or i.source_bbox is not null)""",
+                (test_id,),
+            )
         write_audit(
             tx,
             action="test.asset_upload",
@@ -142,21 +151,32 @@ async def put_key_source(id: UUID, request: Request, ctx: CtxDep, identity: Iden
     return await upload(request, ctx, identity, id, "key_source")
 
 
-@router.get("/api/tests/{id}/pdf-url")
-@access(TEACHER)
-def pdf_url(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
+def signed_asset(ctx: CtxDep, identity: IdentityDep, test_id: UUID, kind: Kind) -> Any:
     with with_identity(ctx.pool, identity) as tx:
-        if tx.execute("select 1 from tests where id = %s", (id,)).fetchone() is None:
+        if tx.execute("select 1 from tests where id = %s", (test_id,)).fetchone() is None:
             raise not_found()
         if ctx.store is None:
             raise unavailable()
         asset = tx.execute(
-            "select storage_key from test_assets where test_id = %s and kind = 'student_pdf'", (id,)
+            "select storage_key from test_assets where test_id = %s and kind = %s", (test_id, kind)
         ).fetchone()
     if asset is None:
         raise not_found()
     url = ctx.store.signed_url(asset["storage_key"], URL_SECONDS)
     return JSONResponse({"url": url, "expiresIn": URL_SECONDS}, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/api/tests/{id}/pdf-url")
+@access(TEACHER)
+def pdf_url(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
+    return signed_asset(ctx, identity, id, "student_pdf")
+
+
+@router.get("/api/tests/{id}/key-source-url")
+@access(TEACHER)
+def key_source_url(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
+    """This file holds answers: the URL and storage key are never logged."""
+    return signed_asset(ctx, identity, id, "key_source")
 
 
 @router.post("/api/tests/{id}/ocr")

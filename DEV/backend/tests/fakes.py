@@ -35,8 +35,10 @@ def make_pdf(
     *,
     encrypted: bool = False,
     declared: int | None = None,
+    page_extra: str = "",
 ) -> bytes:
-    """A small valid PDF. `text=None` gives pages with no text, like a scan."""
+    """A small valid PDF. `text=None` gives pages with no text, like a scan.
+    `page_extra` adds page dictionary entries, such as /Rotate or /CropBox."""
     objects: list[bytes] = []
     kids = " ".join(f"{4 + i * 2} 0 R" for i in range(pages))
     objects.append(b"<< /Type /Catalog /Pages 2 0 R >>")
@@ -47,7 +49,7 @@ def make_pdf(
     for i in range(pages):
         contents = 5 + i * 2
         objects.append(
-            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents {contents} 0 R "
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] {page_extra} /Contents {contents} 0 R "
             f"/Resources << /Font << /F1 3 0 R >> >> >>".encode()
         )
         stream = b"" if text is None else f"BT /F1 12 Tf 20 100 Td ({text}) Tj ET".encode()

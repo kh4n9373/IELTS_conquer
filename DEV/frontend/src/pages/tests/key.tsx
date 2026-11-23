@@ -3,8 +3,9 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import { Empty, ErrorAlert, Icon, Loading, Notice } from '../../components/ui';
 import { useI18n } from '../../lib/i18n';
-import { testsApi, type ImportCounts, type KeyItem, type KeySourceInfo } from '../../lib/tests-api';
+import { testsApi, type ImportCounts, type KeyItem } from '../../lib/tests-api';
 import { useTest } from './editor';
+import { KeyRegion } from './key-region';
 
 const keyQuery = (id: string) => ['test', id, 'key'] as const;
 const readinessQuery = (id: string) => ['test', id, 'readiness'] as const;
@@ -25,7 +26,10 @@ export function KeyPage() {
   });
   const [pasted, setPasted] = useState('');
   const [message, setMessage] = useState<string | null>(null);
-  const [source, setSource] = useState<KeySourceInfo | null>(null);
+  const [selected, setSelected] = useState<number | null>(null);
+  // Counts replaced files, so a crop can never be drawn from the previous one.
+  const [fileRevision, setFileRevision] = useState(0);
+  const [uploading, setUploading] = useState(0);
 
   const refresh = () => {
     client.invalidateQueries({ queryKey: keyQuery(test.id) });
@@ -44,6 +48,8 @@ export function KeyPage() {
   const reviewed = questions.filter((q) => items.get(q.number)?.reviewed && filled(q.number)).length;
   const reviewable = questions.filter((q) => filled(q.number) && !items.get(q.number)?.reviewed && !items.get(q.number)?.flagged).map((q) => q.number);
   const scan = key.data?.scan ?? null;
+  const source = key.data?.source ?? null;
+  const selectedItem = selected === null ? undefined : items.get(selected);
 
   // What a row's box shows while it differs from the stored answer. Review always approves the stored
   // answer, so it stays off while any box differs or is being saved.
@@ -73,13 +79,19 @@ export function KeyPage() {
   };
   const onFile = (file: File | undefined) => {
     if (!file) return;
-    setSource(null);
+    setUploading((n) => n + 1);
     run(async () => {
-      const info = await testsApi.uploadKeySource(test.id, file);
-      setSource(info);
-      if (info.hasTextLayer) {
-        const counts: ImportCounts = await testsApi.importKey(test.id);
-        setMessage(t.tests.key.imported(counts));
+      try {
+        const info = await testsApi.uploadKeySource(test.id, file);
+        setFileRevision((n) => n + 1);
+        if (info.hasTextLayer) {
+          const counts: ImportCounts = await testsApi.importKey(test.id);
+          setMessage(t.tests.key.imported(counts));
+        }
+      } finally {
+        // The rows must show the new file's regions before the card may draw again.
+        await client.invalidateQueries({ queryKey: keyQuery(test.id) });
+        setUploading((n) => n - 1);
       }
     });
   };
@@ -117,8 +129,14 @@ export function KeyPage() {
                   const status = item?.reviewed && has ? t.tests.key.done : !has ? t.tests.key.missing : item?.flagged ? t.tests.key.check : t.tests.key.review;
                   const value = (item?.answers ?? []).join('; ');
                   return (
-                    <tr key={q.number} className={!has || item?.flagged ? 'is-flag' : undefined}>
-                      <th scope="row">{q.number}</th>
+                    <tr
+                      key={q.number}
+                      className={!has || item?.flagged ? 'is-flag' : undefined}
+                      onClick={() => setSelected(q.number)}
+                      onFocusCapture={() => setSelected(q.number)}
+                    >
+                      {/* Locked rows have no enabled control, so the number stays reachable by keyboard. */}
+                      <th scope="row" tabIndex={locked ? 0 : undefined}>{q.number}</th>
                       <td className="muted">{t.tests.questionTypes[q.questionType]}{q.wordLimit ? ` (${q.wordLimit})` : ''}</td>
                       <td>
                         <input
@@ -183,6 +201,14 @@ export function KeyPage() {
             <input type="file" accept="application/pdf,image/png,image/jpeg" onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ''; }} />
           </label>
           <p className="muted">{t.tests.key.fileNote}</p>
+          <KeyRegion
+            key={fileRevision}
+            testId={test.id}
+            fileRevision={fileRevision}
+            number={uploading > 0 ? null : selected}
+            page={uploading > 0 ? null : selectedItem?.sourcePage ?? null}
+            bbox={uploading > 0 ? null : selectedItem?.sourceBbox ?? null}
+          />
           {source && !source.hasTextLayer && (
             <div className="stack">
               <p className="muted">{t.tests.key.scanReady}</p>

@@ -261,8 +261,45 @@ def test_parses_the_sanitized_live_fixture() -> None:
     pages = provider(lambda _: served(FIXTURE.read_bytes())).pages(done())
     assert [p.page for p in pages] == [1]
     assert pages[0].text == "Zorvian lanterns drift above the"
-    assert pages[0].lines[0].bbox == (15.0, 178.0, 397.0, 210.0)
+    assert pages[0].lines[0].bbox == (15 / 400, 178 / 400, 397 / 400, 210 / 400)
     assert pages[0].lines[0].confidence is None
+
+
+def page_with(bbox: object, **size: object) -> bytes:
+    pruned = {"parsing_res_list": [{"block_content": "1. A", "block_bbox": bbox}], **size}
+    row = {"result": {"layoutParsingResults": [{"prunedResult": pruned}]}, "errorCode": 0}
+    return json.dumps(row).encode()
+
+
+def test_box_becomes_fractions_of_the_page() -> None:
+    body = page_with([100, 50, 300, 150], width=400, height=200)
+    box = provider(lambda _: served(body)).pages(done())[0].lines[0].bbox
+    assert box == (0.25, 0.25, 0.75, 0.75)
+
+
+@pytest.mark.parametrize(
+    ("bbox", "size"),
+    [
+        ([1, 2, 3, 4], {}),
+        ([1, 2, 3, 4], {"width": 400}),
+        ([1, 2, 3, 4], {"width": 0, "height": 400}),
+        ([1, 2, 3, 4], {"width": -400, "height": 400}),
+        ([1, 2, 3, 4], {"width": "400", "height": 400}),
+        ([1, 2, 3, 4], {"width": True, "height": 400}),
+        ([1, 2, 3, 4], {"width": float("inf"), "height": 400}),
+        ([1, 2, 3, 4], {"width": float("nan"), "height": 400}),
+        ([1, 2, 3, 4], {"width": 10**400, "height": 400}),
+        ([10**400, 2, 3, 4], {"width": 400, "height": 400}),
+        ([1, 2, 500, 4], {"width": 400, "height": 400}),
+        ([-1, 2, 3, 4], {"width": 400, "height": 400}),
+        ([3, 2, 3, 4], {"width": 400, "height": 400}),
+        ([1, 4, 3, 4], {"width": 400, "height": 400}),
+        ([3, 2, 1, 4], {"width": 400, "height": 400}),
+    ],
+)
+def test_unusable_box_or_page_size_stores_no_box(bbox: object, size: dict[str, object]) -> None:
+    body = page_with(bbox, **size)
+    assert provider(lambda _: served(body)).pages(done())[0].lines[0].bbox is None
 
 
 def test_fixture_holds_no_identifiers_or_urls() -> None:

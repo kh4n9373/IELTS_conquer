@@ -74,6 +74,12 @@ label.plain input:focus-visible, select:focus-visible, textarea:focus-visible, i
 .key-table button.review { min-width: 112px; min-height: 42px; padding: 0 10px; font-size: 0.8125rem; font-weight: 800; }
 .key-table button.review.is-on { color: #fff; background: var(--ink); }
 .scan-status { display: grid; gap: 8px; padding: 10px; background: var(--paper); border: 1px solid var(--line); font-size: 0.875rem; }
+.key-region { display: grid; gap: 6px; padding: 10px; background: #f5f4f2; border: 1px solid rgba(12, 12, 13, 0.16); color: #111112; }
+.key-region strong { display: block; font-size: 13px; font-weight: 800; }
+.key-region p { margin: 0; color: #4c4c52; font-size: 13px; }
+.key-crop { display: grid; place-items: center; min-height: 76px; overflow: hidden; background: #ffffff; border: 2px solid #e30b1c; }
+.key-crop[hidden] { display: none; }
+.key-crop canvas { display: block; max-width: 100%; }
 
 /* Publish */
 .publish { border-top: 8px solid var(--ink); padding: clamp(16px, 3vw, 24px); }

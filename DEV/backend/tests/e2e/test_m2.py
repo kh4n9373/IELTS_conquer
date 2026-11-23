@@ -172,6 +172,90 @@ DARK_PIXELS = """() => {
 }"""
 
 
+SCAN_LABEL = "Quét đáp án"
+CROP_DARK_PIXELS = DARK_PIXELS.replace(
+    "document.querySelector('canvas')", "document.querySelector('.key-region canvas')"
+)
+
+
+@pytest.mark.e2e
+def test_key_row_shows_its_source_region(servers: None) -> None:
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="chrome", headless=True)
+        admin = browser.new_context().new_page()
+        login(admin, "admin@test.local", "admin-password-123")
+        teacher = provision_teacher(browser, admin, "Cô Lan", "lan@test.local")
+        errors: list[str] = []
+        teacher.on("pageerror", lambda e: errors.append(str(e)))
+
+        teacher.goto(f"{WEB_URL}/tests/new")
+        teacher.get_by_label("Tên đề").fill("Vùng gốc đáp án")
+        teacher.get_by_label("PDF đề thi").set_input_files(
+            {"name": "exam.pdf", "mimeType": "application/pdf", "buffer": make_pdf(pages=2, text="Invented")}
+        )
+        teacher.get_by_role("button", name="Tiếp tục").click()
+        expect(teacher.get_by_role("heading", name="Khai báo cấu trúc")).to_be_visible()
+        teacher.get_by_role("button", name="Thêm passage").click()
+        group = teacher.get_by_role("group", name="Passage 1")
+        group.get_by_label("Trang bài đọc").fill("1")
+        group.get_by_label("Trang câu hỏi").fill("2")
+        group.get_by_role("button", name="Thêm dải câu").click()
+        pick_range(teacher, "Passage 1", 1, 1, 2, "multiple_choice")
+        teacher.get_by_role("button", name="Lưu cấu trúc").click()
+        expect(teacher.get_by_text("Đã lưu cấu trúc")).to_be_visible()
+
+        teacher.get_by_role("link", name="3. Đáp án").click()
+        card = teacher.locator(".key-region")
+        expect(card).to_contain_text("Chọn một câu")
+        teacher.get_by_label("Tải PDF hoặc ảnh đáp án").set_input_files(
+            {"name": "key.pdf", "mimeType": "application/pdf", "buffer": make_pdf(text="1. C")}
+        )
+        imported = teacher.get_by_label("Đáp án câu 1")
+        expect(imported).to_have_value("C")
+
+        imported.focus()
+        expect(card).to_contain_text("Vùng gốc của câu 1")
+        teacher.wait_for_function(f"({CROP_DARK_PIXELS})() > 5", timeout=15_000)
+
+        # A typed answer has no source, and the previous crop must be gone.
+        typed = teacher.get_by_label("Đáp án câu 2")
+        typed.fill("B")
+        typed.blur()
+        expect(typed).to_have_value("B")
+        typed.focus()
+        expect(card).to_contain_text("Câu này chưa có vùng gốc")
+        expect(card.locator("canvas")).to_have_count(0)
+
+        # After a reload the page still knows the source file.
+        teacher.reload()
+        teacher.get_by_label("Đáp án câu 1").focus()
+        teacher.wait_for_function(f"({CROP_DARK_PIXELS})() > 5", timeout=15_000)
+
+        # A replaced file on a turned, cropped page: a box in the wrong frame would draw blank paper.
+        turned = make_pdf(text="1. D", page_extra="/Rotate 90 /CropBox [10 50 110 150]")
+        teacher.get_by_label("Tải PDF hoặc ảnh đáp án").set_input_files(
+            {"name": "key2.pdf", "mimeType": "application/pdf", "buffer": turned}
+        )
+        expect(teacher.get_by_label("Đáp án câu 1")).to_have_value("D")
+        teacher.get_by_label("Đáp án câu 1").focus()
+        teacher.wait_for_function(f"({CROP_DARK_PIXELS})() > 5", timeout=15_000)
+
+        # A scan-only file clears the regions and keeps its scan button after a reload.
+        teacher.get_by_label("Tải PDF hoặc ảnh đáp án").set_input_files(
+            {"name": "scan.pdf", "mimeType": "application/pdf", "buffer": make_pdf(text=None)}
+        )
+        scan = teacher.get_by_role("button", name=SCAN_LABEL)
+        expect(scan).to_be_visible()
+        teacher.reload()
+        expect(scan).to_be_visible()
+        teacher.get_by_label("Đáp án câu 1").focus()
+        expect(card).to_contain_text("Câu này chưa có vùng gốc")
+        expect(card.locator("canvas")).to_have_count(0)
+
+        assert errors == []
+        browser.close()
+
+
 @pytest.mark.e2e
 def test_jpeg2000_and_jbig2_pages_are_drawn(servers: None) -> None:
     """PDF.js decodes these formats with wasm files, which must be served from this origin."""

@@ -84,13 +84,22 @@ def key_scan_status(tx: Conn, test_id: UUID) -> dict[str, Any] | None:
     ).fetchone()
 
 
+def key_source_summary(tx: Conn, test_id: UUID) -> dict[str, Any] | None:
+    """What the page needs about the file. The storage key stays on the server."""
+    return tx.execute(
+        """select kind, page_count as "pageCount", has_text_layer as "hasTextLayer"
+           from test_assets where test_id = %s and kind = 'key_source'""",
+        (test_id,),
+    ).fetchone()
+
+
 @router.get("/api/tests/{id}/key")
 @access(TEACHER)
 def get_key(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
     with with_identity(ctx.pool, identity) as tx:
         if tx.execute("select 1 from tests where id = %s", (id,)).fetchone() is None:
             raise not_found()
-        return {**load_key(tx, id), "scan": key_scan_status(tx, id)}
+        return {**load_key(tx, id), "scan": key_scan_status(tx, id), "source": key_source_summary(tx, id)}
 
 
 @router.put("/api/tests/{id}/key/items")

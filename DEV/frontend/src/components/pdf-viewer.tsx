@@ -11,7 +11,7 @@ type Loaded = { doc: PDFDocumentProxy; pages: number };
 /** The signed address lives 5 minutes and the file is read once, so it is cached for a shorter time. */
 export const pdfUrlKey = (testId: string) => ['pdf-url', testId] as const;
 
-async function openPdf(url: string): Promise<PDFDocumentProxy> {
+export async function openPdf(url: string): Promise<PDFDocumentProxy> {
   const pdfjs = await import('pdfjs-dist');
   pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
   // The file is untrusted. No eval-based font paths, and one plain request without range reads, so the

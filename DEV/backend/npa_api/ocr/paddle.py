@@ -10,6 +10,7 @@ from typing import Any, NoReturn, cast
 
 import httpx
 
+from ..exams.regions import BBox, fraction_box
 from .provider import ErrorCode, OcrError, OcrJobExpired, OcrLine, OcrPage, OcrState, OcrStatus
 
 API_URL = "https://paddleocr.aistudio-app.com/api/v2/ocr/jobs"
@@ -56,19 +57,30 @@ def check_result_url(url: object) -> httpx.URL:
     return parsed
 
 
-def parse_bbox(value: object) -> tuple[float, float, float, float] | None:
+def is_number(value: object) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def parse_bbox(value: object, width: object, height: object) -> BBox | None:
+    """Provider pixels become page fractions. Anything unusable means no box, never a wrong one."""
     if not isinstance(value, list) or len(value) != 4:
         return None
-    if not all(isinstance(n, int | float) and not isinstance(n, bool) for n in value):
+    if not all(is_number(n) for n in (*value, width, height)):
         return None
-    return (float(value[0]), float(value[1]), float(value[2]), float(value[3]))
+    try:
+        x0, y0, x1, y1 = (float(n) for n in value)
+        return fraction_box(x0, y0, x1, y1, float(cast(float, width)), float(cast(float, height)))
+    except OverflowError:  # JSON integers have no size limit
+        return None
 
 
 def parse_page(number: int, raw: object) -> OcrPage:
     if not isinstance(raw, dict):
         fail("bad_result")
     pruned = raw.get("prunedResult")
-    blocks = pruned.get("parsing_res_list") if isinstance(pruned, dict) else None
+    if not isinstance(pruned, dict):
+        fail("bad_result")
+    blocks = pruned.get("parsing_res_list")
     if not isinstance(blocks, list):
         fail("bad_result")
     lines: list[OcrLine] = []
@@ -76,7 +88,8 @@ def parse_page(number: int, raw: object) -> OcrPage:
         if not isinstance(block, dict) or not isinstance(block.get("block_content"), str):
             fail("bad_result")
         # The layout score is not a text confidence, so it is not reported as one.
-        lines.append(OcrLine(block["block_content"], parse_bbox(block.get("block_bbox")), None))
+        box = parse_bbox(block.get("block_bbox"), pruned.get("width"), pruned.get("height"))
+        lines.append(OcrLine(block["block_content"], box, None))
     return OcrPage(page=number, text="\n".join(line.text for line in lines), lines=lines)
 
 
