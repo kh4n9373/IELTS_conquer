@@ -91,6 +91,18 @@ try:
             )
         return {"ok": True}
 
+    @app.post("/api/e2e/expire-attempts")
+    def e2e_expire_attempts() -> dict[str, int]:
+        """Test clock hook: moves every open attempt's deadline past the grace period.
+
+        Lives only in this test server. The real API has no way to shorten a test.
+        """
+        with db.owner_pool.connection() as conn:
+            cur = conn.execute(
+                "update attempts set deadline_at = now() - interval '2 minutes' where status = 'in_progress'"
+            )
+            return {"expired": cur.rowcount}
+
     uvicorn.run(app, host="127.0.0.1", port=int(os.environ["PORT"]), log_level="warning")
 finally:
     db.destroy()

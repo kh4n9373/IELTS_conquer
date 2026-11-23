@@ -1,0 +1,29 @@
+/* Result screen. Plain page inside the app shell, same red/black system as the exam room. */
+.res-pending { max-width: 720px; box-sizing: border-box; padding: 40px; display: flex; flex-direction: column; gap: 16px; background: #fff; border: 1px solid var(--line); border-top: 9px solid #e30b1c; }
+.res-pending h2 { margin: 0; font-size: 2.25rem; line-height: 1.1; font-weight: 900; letter-spacing: -0.02em; }
+.res-expect { display: flex; flex-direction: column; gap: 4px; padding: 16px; background: #e9e7e4; }
+.res-pending .button-link { align-self: flex-start; }
+
+.res-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-block: 8px 16px; }
+.res-stats.has-band { grid-template-columns: repeat(3, 1fr); }
+.res-stat { padding: 20px; background: #fff; border: 1px solid var(--line); color: #111112; }
+.res-stat strong { display: block; font-size: 2.625rem; line-height: 1.1; font-weight: 900; }
+.res-stat span { font-size: 0.875rem; font-weight: 700; }
+.res-stat.is-band { background: #e30b1c; border-color: #e30b1c; color: #fff; }
+.res-note { margin: 0 0 12px; padding: 12px 16px; background: #e9e7e4; font-size: 0.9375rem; font-weight: 700; }
+
+.res-detail { margin-block: 16px; padding: 20px; background: #fff; border: 1px solid var(--line); overflow-x: auto; }
+.res-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.res-detail-head h2 { margin: 0; font-size: 1.125rem; font-weight: 800; }
+.res-detail table { width: 100%; border-collapse: collapse; }
+.res-detail th, .res-detail td { padding: 10px 12px; text-align: left; font-size: 0.9375rem; border-bottom: 1px solid var(--line); }
+.res-detail thead th { font-size: 0.8125rem; border-bottom: 2px solid #111112; }
+.res-detail tbody th { font-weight: 800; }
+.res-detail .is-right { font-weight: 800; }
+.res-detail .is-wrong { font-weight: 800; color: #c00915; }
+
+@media (max-width: 640px) {
+  .res-pending { padding: 24px 16px; }
+  .res-stats, .res-stats.has-band { grid-template-columns: 1fr; }
+  .res-stat strong { font-size: 2rem; }
+}

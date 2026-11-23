@@ -84,14 +84,15 @@ export type ResultReleased = {
   percent: number;
   countsForProgress: boolean;
   /** Present only for tests with a band table. */
-  band?: number;
+  band?: string;
   bandLabel?: 'estimated';
-  bandTableVersion?: number;
+  bandTableVersion?: string;
   sections: { position: number; title: string; correct: number; total: number }[];
   items: { number: number; answer: string | null; correct: boolean; key: string[] }[];
 };
 /** A teacher can also read a graded attempt that is not yet released to students. */
-export type ResultView = ResultPending | ResultReleased | (Omit<ResultReleased, 'released'> & { released: false });
+export type ResultPreview = Omit<ResultReleased, 'released'> & { released: false };
+export type ResultView = ResultPending | ResultReleased | ResultPreview;
 
 const a = '/api/assignments';
 const at = (id: string) => `/api/attempts/${id}`;
