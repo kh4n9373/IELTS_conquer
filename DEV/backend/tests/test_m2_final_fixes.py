@@ -230,10 +230,12 @@ def test_review_audit_holds_no_answers(h: Harness, t: dict[str, Any]) -> None:
 
 def test_number_inside_an_answer_flags_the_line(h: Harness, t: dict[str, Any]) -> None:
     tid = make(h, t)
-    put_key(h, t, tid, make_pdf(1, text="7 about 200 years"))
+    # Question 14 takes free text, so only the line rule can catch the cut-off answer.
+    put_key(h, t, tid, make_pdf(1, text="14 about 200 years"))
     res = post(h, t, tid, "import")
     assert res.json["unmatched"] == 1
-    assert stored(h, tid)[7]["flagged"] is True
+    row = stored(h, tid)[14]
+    assert (row["answers"], row["flagged"]) == (["about"], True)
 
 
 def test_every_draft_on_a_line_with_an_unknown_number_is_flagged(h: Harness, t: dict[str, Any]) -> None:
