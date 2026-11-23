@@ -32,6 +32,15 @@ MATRIX: dict[str, tuple[Any, int | None]] = {
     "POST /api/invites/{code}/join": (None, 403),
     "GET /api/consents": (None, None),
     "POST /api/consents": ({"purpose": "ai_processing", "granted": True}, None),
+    "GET /api/tests": (None, None),
+    "POST /api/tests": ({"title": "Matrix", "sourceType": "self_authored"}, None),
+    "GET /api/tests/{id}": (None, 404),
+    "PATCH /api/tests/{id}": ({"title": "Hacked"}, 404),
+    "PUT /api/tests/{id}/structure": (
+        {"sections": [{"title": "S", "ranges": [{"from": 1, "to": 2, "questionType": "tfng"}]}]},
+        404,
+    ),
+    "GET /api/tests/{id}/readiness": (None, 404),
 }
 
 
@@ -44,10 +53,12 @@ class World:
     code: str
     student_id: str
     teacher_id: str
+    test_id: str
 
     def fill(self, url: str) -> str:
         return (
-            url.replace("/api/invites/{id}", f"/api/invites/{self.invite_id}")
+            url.replace("/api/tests/{id}", f"/api/tests/{self.test_id}")
+            .replace("/api/invites/{id}", f"/api/invites/{self.invite_id}")
             .replace("/api/admin/teachers/{id}", f"/api/admin/teachers/{self.teacher_id}")
             .replace("{id}", self.class_id)
             .replace("{studentId}", self.student_id)
@@ -62,6 +73,7 @@ def w(h: Harness) -> World:
     h.create_user("b@test.local", "teacher")
     admin, teacher, teacher_b = h.login("admin@test.local"), h.login("a@test.local"), h.login("b@test.local")
     class_id = h.call(teacher, "POST", "/api/classes", {"name": "A"}).json["id"]
+    test_id = h.call(teacher, "POST", "/api/tests", {"title": "T", "sourceType": "self_authored"}).json["id"]
     invite = h.call(teacher, "POST", f"/api/classes/{class_id}/invites", {"expiresInDays": 7}).json
     student = h.call(
         None,
@@ -77,7 +89,14 @@ def w(h: Harness) -> World:
     )
     cookies = {"admin": admin, "teacher": teacher, "student": h.login("student@test.local")}
     return World(
-        cookies, teacher_b, class_id, invite["id"], invite["code"], student.json["id"], str(teacher_id)
+        cookies,
+        teacher_b,
+        class_id,
+        invite["id"],
+        invite["code"],
+        student.json["id"],
+        str(teacher_id),
+        test_id,
     )
 
 

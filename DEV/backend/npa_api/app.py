@@ -12,7 +12,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from .core.db import Pool
 from .core.http import Access, Ctx, GuardedRoute, HttpError, RateLimiter
 from .core.mailer import Mailer
-from .routes import admin, auth, classes, consent, invites
+from .routes import admin, auth, classes, consent, invites, tests
 
 log = logging.getLogger("npa.api")
 BODY_LIMIT = 64 * 1024
@@ -94,7 +94,7 @@ def build_app(
         return _error(500, "internal_error")
 
     # Added route by route: include_router wraps them, which would hide them from the guard check.
-    for module in (auth, admin, classes, invites, consent):
+    for module in (auth, admin, classes, invites, consent, tests):
         app.router.routes.extend(module.router.routes)
 
     assert_all_guarded(app)
