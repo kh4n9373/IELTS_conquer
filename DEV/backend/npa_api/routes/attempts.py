@@ -18,11 +18,13 @@ from ..core.http import (
     domain_errors,
     storable,
 )
+from ..grading.release import build_result, facts_of, is_released, pending
 from ..grading.settle import GRACE_SECONDS, settle_attempt, settle_if_due
 from .test_files import URL_SECONDS, unavailable
 
 router = APIRouter(route_class=GuardedRoute)
 STUDENT: tuple[Role, ...] = ("student",)
+BOTH: tuple[Role, ...] = ("student", "teacher")
 Text = Annotated[str, AfterValidator(storable)]
 
 
@@ -130,3 +132,29 @@ def submit(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
     settle_attempt(ctx, id, source="student")
     state = _state(ctx, identity, id)
     return {"status": state["status"], "finalizedAt": state["finalized_at"]}
+
+
+def _result_row(ctx: Ctx, identity: Identity, id: UUID) -> dict[str, Any]:
+    with ctx.pool.connection() as conn:
+        found = conn.execute("select app.attempt_result_row(%s) as row", (id,)).fetchone()
+    assert found is not None  # noqa: S101
+    row = found["row"]
+    owner = row["studentId"] if identity.role == "student" else row["teacherId"] if row else None
+    if row is None or str(owner) != str(identity.user_id):
+        raise HttpError(404, "not_found")
+    return dict(row)
+
+
+@router.get("/api/attempts/{id}/result")
+@access(BOTH)
+def result(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
+    _result_row(ctx, identity, id)  # ownership first: settling must not reveal anything to strangers
+    settle_if_due(ctx, id)
+    row = _result_row(ctx, identity, id)
+    student = identity.role == "student"
+    released = is_released(facts_of(row), ctx.now())
+    if row["run"] is None or (student and not released):
+        body = pending(row, student=student)
+    else:
+        body = build_result(row, released=released)
+    return JSONResponse(body, headers={"Cache-Control": "no-store"})

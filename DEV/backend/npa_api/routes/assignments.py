@@ -192,7 +192,31 @@ def create_assignment(body: CreateBody, ctx: CtxDep, identity: IdentityDep) -> A
 @access(TEACHER)
 def get_assignment(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
     with with_identity(ctx.pool, identity) as tx:
-        return load(tx, id, ctx.now())
+        out = load(tx, id, ctx.now())
+        rows = tx.execute(
+            """select u.id, u.display_name as name,
+                      (select count(*) from attempts a where a.assignment_id = r.assignment_id
+                        and a.student_id = r.student_id)::int as attempts,
+                      exists (select 1 from attempts a where a.assignment_id = r.assignment_id
+                               and a.student_id = r.student_id and a.status = 'in_progress') as open,
+                      (select count(*) from late_answers l join attempts a on a.id = l.attempt_id
+                        where a.assignment_id = r.assignment_id
+                        and a.student_id = r.student_id)::int as "lateCount"
+               from assignment_recipients r join users u on u.id = r.student_id
+               where r.assignment_id = %s order by u.display_name, u.id""",
+            (id,),
+        ).fetchall()
+        students = [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "state": "in_progress" if r["open"] else "submitted" if r["attempts"] else "not_started",
+                "attempts": r["attempts"],
+                "lateCount": r["lateCount"],
+            }
+            for r in rows
+        ]
+        return out | {"students": students}
 
 
 @router.patch("/api/assignments/{id}")

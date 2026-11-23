@@ -403,6 +403,25 @@ returns jsonb language sql stable security definer set search_path = public, pg_
     'number', a.number, 'mode', a.mode, 'finalizedAt', a.finalized_at,
     'assignment', jsonb_build_object('id', g.id, 'releasePolicy', g.release_policy, 'releaseAt', g.release_at,
                                      'dueAt', g.due_at, 'maxAttempts', g.max_attempts),
+    'isTrial', (g.is_trial or exists (select 1 from classes c where c.id = g.class_id and c.is_trial)
+                or exists (select 1 from users u where u.id = a.student_id and u.is_trial)),
+    'sections', coalesce((select jsonb_agg(jsonb_build_object('position', s.position, 'title', s.title,
+              'numbers', (select coalesce(jsonb_agg(q.number order by q.number), '[]'::jsonb)
+                          from questions q where q.section_id = s.id)) order by s.position)
+            from sections s where s.test_id = g.test_id), '[]'),
+    'facts', jsonb_build_object(
+      'ownFinal', (select count(*) from attempts x where x.assignment_id = g.id
+                   and x.student_id = a.student_id and x.status <> 'in_progress'),
+      'openAttempts', (select count(*) from attempts x where x.assignment_id = g.id and x.status = 'in_progress'),
+      -- A removed student who never started cannot finish, so they do not hold back the group.
+      'activeRecipients', (select count(*) from assignment_recipients r where r.assignment_id = g.id
+                           and (exists (select 1 from attempts x where x.assignment_id = g.id
+                                        and x.student_id = r.student_id)
+                                or exists (select 1 from class_members m where m.class_id = g.class_id
+                                           and m.student_id = r.student_id and m.removed_at is null))),
+      'recipientsDone', (select count(*) from assignment_recipients r where r.assignment_id = g.id
+                         and (select count(*) from attempts x where x.assignment_id = g.id
+                              and x.student_id = r.student_id and x.status <> 'in_progress') >= g.max_attempts)),
     'run', (select jsonb_build_object('run', r.run, 'keyVersionId', r.key_version_id,
               'rulesVersion', r.rules_version, 'testType', r.test_type, 'correct', r.correct, 'total', r.total,
               'percent', r.percent, 'band', r.band, 'bandTableVersion', r.band_table_version)
