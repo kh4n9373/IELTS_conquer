@@ -38,8 +38,11 @@ packages = ["npa_api"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-m 'not e2e'"
-markers = ["e2e: browser flow, needs Chrome and the web dev server"]
+addopts = "-m 'not e2e and not pilot'"
+markers = [
+  "e2e: browser flow, needs Chrome and the web dev server",
+  "pilot: compares the real pilot key locally, skipped when DEV/exam is absent",
+]
 
 [tool.ruff]
 line-length = 110

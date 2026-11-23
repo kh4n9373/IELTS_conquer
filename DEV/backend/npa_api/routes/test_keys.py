@@ -1,3 +1,5 @@
+import tempfile
+from pathlib import Path
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -7,7 +9,9 @@ from pydantic import Field, model_validator
 
 from ..core.db import Conn, with_identity, write_audit
 from ..core.http import Body, CtxDep, GuardedRoute, HttpError, IdentityDep, access, not_found
-from ..exams.keys import normalize_answers, parse_pasted_key, upsert_items
+from ..exams.key_import import KeyLine, apply_drafts, parse_key_lines, pdf_lines
+from ..exams.keys import draft_version, normalize_answers, parse_pasted_key, upsert_items
+from ..exams.pdf import PdfRejected
 from .tests import TEACHER, TEST_COLUMNS, blockers_of, lock_test, public
 
 router = APIRouter(route_class=GuardedRoute)
@@ -50,23 +54,6 @@ def parse_items(body: KeyItemsBody) -> dict[int, list[str]]:
         raise INVALID from err
 
 
-def draft_version(tx: Conn, test_id: UUID, *, create: bool) -> dict[str, Any] | None:
-    """The test row must already be locked: that lock is what makes get-or-create race free."""
-    version = tx.execute(
-        """select id, version, approved_at as "approvedAt" from keys.answer_key_versions
-           where test_id = %s order by version desc limit 1""",
-        (test_id,),
-    ).fetchone()
-    if version is None and create:
-        version = tx.execute(
-            """insert into keys.answer_key_versions (test_id, teacher_id, version)
-               select id, teacher_id, 1 from tests where id = %s
-               returning id, version, approved_at as "approvedAt" """,
-            (test_id,),
-        ).fetchone()
-    return version
-
-
 def question_numbers(tx: Conn, test_id: UUID) -> set[int]:
     rows = tx.execute("select number from questions where test_id = %s", (test_id,)).fetchall()
     return {r["number"] for r in rows}
@@ -78,7 +65,8 @@ def load_key(tx: Conn, test_id: UUID) -> dict[str, Any]:
         return {"version": None, "approvedAt": None, "items": []}
     items = tx.execute(
         """select question_number as number, answers, origin, flagged,
-                  reviewed_at is not null as reviewed, reviewed_at as "reviewedAt"
+                  reviewed_at is not null as reviewed, reviewed_at as "reviewedAt",
+                  source_page as "sourcePage", source_bbox as "sourceBbox"
            from keys.answer_key_items where version_id = %s order by question_number""",
         (version["id"],),
     ).fetchall()
@@ -141,6 +129,75 @@ def review_key(id: UUID, body: ReviewBody, ctx: CtxDep, identity: IdentityDep) -
             after={"questions": numbers, "count": len(numbers)},
         )
         return load_key(tx, id)
+
+
+def key_source(tx: Conn, test_id: UUID) -> dict[str, Any]:
+    asset = tx.execute(
+        """select id, storage_key, has_text_layer from test_assets
+           where test_id = %s and kind = 'key_source'""",
+        (test_id,),
+    ).fetchone()
+    if asset is None:
+        raise HttpError(409, "key_source_missing")
+    return asset
+
+
+def read_key_lines(ctx: CtxDep, storage_key: str) -> list[KeyLine]:
+    if ctx.store is None:
+        raise HttpError(503, "storage_unavailable")
+    with tempfile.TemporaryDirectory() as folder:
+        path = Path(folder) / "key.pdf"
+        try:
+            ctx.store.get(storage_key, path)
+        except Exception as err:
+            raise HttpError(503, "storage_unavailable") from err
+        try:
+            return pdf_lines(path)
+        except PdfRejected as err:
+            raise HttpError(422, err.code) from err
+
+
+@router.post("/api/tests/{id}/key/import")
+@access(TEACHER)
+def import_key(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
+    with with_identity(ctx.pool, identity) as tx:
+        lock_test(tx, id, draft=True)
+        asset = key_source(tx, id)
+        if asset["has_text_layer"] is not True:
+            raise HttpError(409, "key_no_text_layer")
+    # The file is read outside the transaction so a slow download never holds the test lock.
+    drafts = parse_key_lines(read_key_lines(ctx, asset["storage_key"]))
+    with with_identity(ctx.pool, identity) as tx:
+        lock_test(tx, id, draft=True)
+        if key_source(tx, id)["id"] != asset["id"]:
+            raise HttpError(409, "key_source_changed")
+        counts = apply_drafts(tx, id, drafts, "text_layer")
+        # Counts only: admins can read the audit log but must not see answers.
+        write_audit(tx, action="key.import", entity="test", entity_id=id, after=counts)
+    return counts
+
+
+@router.post("/api/tests/{id}/key/scan", status_code=202)
+@access(TEACHER)
+def scan_key(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
+    with with_identity(ctx.pool, identity) as tx:
+        test = lock_test(tx, id, draft=True)
+        asset = key_source(tx, id)
+        if asset["has_text_layer"] is True:
+            raise HttpError(409, "key_has_text_layer")
+        active = tx.execute(
+            "select 1 from ocr_jobs where asset_id = %s and state in ('queued', 'running') for update",
+            (asset["id"],),
+        ).fetchone()
+        if active is not None:
+            raise HttpError(409, "ocr_in_progress")
+        # A new row, not a reset: a stale worker's fence on the old id can then never match.
+        tx.execute("delete from ocr_jobs where asset_id = %s", (asset["id"],))
+        tx.execute(
+            "insert into ocr_jobs (asset_id, teacher_id) values (%s, %s)", (asset["id"], test["teacher_id"])
+        )
+        write_audit(tx, action="key.scan", entity="test", entity_id=id)
+    return {"state": "queued", "errorCode": None}
 
 
 @router.post("/api/tests/{id}/publish")

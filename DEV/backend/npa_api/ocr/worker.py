@@ -16,8 +16,9 @@ from uuid import UUID
 
 import httpx
 
-from ..core.db import Identity, Pool, open_pool, with_identity
+from ..core.db import Conn, Identity, Pool, open_pool, with_identity
 from ..core.storage import FileStore
+from ..exams.key_import import KeyLine, apply_drafts, parse_key_lines
 from ..server import S3_NAMES, create_store
 from .paddle import PaddleOcrProvider
 from .provider import ErrorCode, OcrError, OcrJobExpired, OcrPage, OcrProvider
@@ -111,6 +112,48 @@ def store_result(pool: Pool, job: Claim, rows: list[tuple[int, str]], now: datet
             )
 
 
+def key_lines(pages: list[OcrPage]) -> list[KeyLine]:
+    out: list[KeyLine] = []
+    for page in sorted(pages, key=lambda p: p.page):
+        for line in page.lines:
+            text = line.text.replace("\x00", "")
+            try:
+                text.encode("utf-8")
+            except UnicodeEncodeError:
+                raise OcrError("bad_result") from None
+            out.append(KeyLine(text, page.page, line.bbox, line.confidence, scanned=True))
+    return out
+
+
+def fail_locked(tx: Conn, job: Claim, now: datetime) -> None:
+    """Final, not retried: a test that left draft does not come back."""
+    tx.execute(
+        """update ocr_jobs set state = 'failed', error_code = 'test_locked', finished_at = %s,
+             lease_until = null
+           where id = %s and state = 'running' and attempts = %s""",
+        (now, job.id, job.attempts),
+    )
+
+
+def store_key_result(pool: Pool, job: Claim, test_id: UUID, lines: list[KeyLine], now: datetime) -> None:
+    """Answers go to the draft key only, never to page_texts, which later feeds AI features."""
+    drafts = parse_key_lines(lines)
+    with with_identity(pool, job.identity) as tx:
+        test = tx.execute("select status from tests where id = %s for update", (test_id,)).fetchone()
+        if test is None:
+            return
+        if test["status"] != "draft":
+            fail_locked(tx, job, now)
+            return
+        updated = tx.execute(
+            """update ocr_jobs set state = 'done', finished_at = %s, error_code = null, lease_until = null
+               where id = %s and state = 'running' and attempts = %s""",
+            (now, job.id, job.attempts),
+        ).rowcount
+        if updated == 1:
+            apply_drafts(tx, test_id, drafts, "scan")
+
+
 def process(
     pool: Pool,
     store: FileStore,
@@ -122,8 +165,14 @@ def process(
 ) -> None:
     with with_identity(pool, job.identity) as tx:
         asset = tx.execute(
-            "select storage_key, page_count from test_assets where id = %s", (job.asset_id,)
+            """select a.storage_key, a.page_count, a.kind, a.test_id, t.status
+               from test_assets a join tests t on t.id = a.test_id where a.id = %s""",
+            (job.asset_id,),
         ).fetchone()
+        if asset is not None and asset["kind"] == "key_source" and asset["status"] != "draft":
+            # Stops before the paid provider call.
+            fail_locked(tx, job, now())
+            return
     if asset is None:
         return
     provider_id = job.provider_job_id
@@ -151,12 +200,17 @@ def process(
             raise OcrError("provider_error")
         if status.state == "done":
             try:
-                rows = clean_pages(provider.pages(status), asset["page_count"] or 0)
+                pages = provider.pages(status)
+                rows = clean_pages(pages, asset["page_count"] or 0)
+                lines = key_lines(pages) if asset["kind"] == "key_source" else []
             except OcrError as err:
                 if err.code == "bad_result":
                     set_provider_id(pool, job, None)
                 raise
-            store_result(pool, job, rows, now())
+            if asset["kind"] == "key_source":
+                store_key_result(pool, job, asset["test_id"], lines, now())
+            else:
+                store_result(pool, job, rows, now())
             return
         if now() + timedelta(seconds=POLL_SECONDS) > deadline:
             break
