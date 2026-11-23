@@ -157,7 +157,7 @@ export function StructurePage() {
         footer={ocr?.state === 'failed' && (
           <div className="ocr-failed" role="status">
             <span>{t.tests.ocr.failedHelp}</span>
-            <button type="button" className="secondary" onClick={() => retry.mutate()} disabled={retry.isPending || locked}>{t.tests.ocr.retry}</button>
+            <button type="button" className="secondary" onClick={() => retry.mutate()} disabled={retry.isPending || test.status === 'archived'}>{t.tests.ocr.retry}</button>
             <ErrorAlert error={retry.error} />
           </div>
         )}

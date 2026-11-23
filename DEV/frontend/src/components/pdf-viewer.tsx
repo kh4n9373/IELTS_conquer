@@ -16,7 +16,8 @@ async function openPdf(url: string): Promise<PDFDocumentProxy> {
   pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
   // The file is untrusted. No eval-based font paths, and one plain request without range reads, so the
   // signed address needs no extra CORS headers and cannot expire between ranges.
-  return pdfjs.getDocument({ url, isEvalSupported: false, disableRange: true, disableStream: true }).promise;
+  const wasmUrl = new URL(`${import.meta.env.BASE_URL}pdfjs-wasm/`, window.location.origin).href;
+  return pdfjs.getDocument({ url, wasmUrl, isEvalSupported: false, disableRange: true, disableStream: true }).promise;
 }
 
 /** Draws one PDF page at a time on a canvas. Never builds HTML from the file. */

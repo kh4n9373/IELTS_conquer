@@ -1,7 +1,11 @@
 """Test doubles: an in-memory file store and generated PDFs (no fixture files on disk)."""
 
 import hashlib
+import io
+import struct
 from pathlib import Path
+
+from PIL import Image
 
 
 class MemoryFileStore:
@@ -70,3 +74,61 @@ def make_pdf(
     trailer = f"<< /Size {len(objects) + 1} /Root 1 0 R{trailer_extra} >>"
     out += f"trailer\n{trailer}\nstartxref\n{xref}\n%%EOF\n".encode()
     return bytes(out)
+
+
+def _half_black(mode: str) -> Image.Image:
+    """An invented 64x64 image: the top half black, the bottom half white."""
+    image = Image.new(mode, (64, 64), 255 if mode == "L" else 1)
+    image.paste(0, (0, 0, 64, 32))
+    return image
+
+
+def _image_pdf(filter_name: str, data: bytes, bits: int) -> bytes:
+    content = b"q 180 0 0 180 10 10 cm /Im Do Q"
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R "
+        b"/Resources << /XObject << /Im 5 0 R >> >> >>",
+        b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
+        f"<< /Type /XObject /Subtype /Image /Width 64 /Height 64 /Filter /{filter_name} "
+        f"/ColorSpace /DeviceGray /BitsPerComponent {bits} /Length {len(data)} >>\nstream\n".encode()
+        + data
+        + b"\nendstream",
+    ]
+    out = bytearray(b"%PDF-1.5\n")
+    offsets = []
+    for number, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n" % number + body + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
+    for offset in offsets:
+        out += b"%010d 00000 n \n" % offset
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objects) + 1, xref)
+    return bytes(out)
+
+
+def make_jpx_pdf() -> bytes:
+    """One page whose picture is JPEG2000 (needs PDF.js's OpenJPEG decoder): top half black."""
+    buffer = io.BytesIO()
+    _half_black("L").save(buffer, "JPEG2000")
+    return _image_pdf("JPXDecode", buffer.getvalue(), 8)
+
+
+def make_jbig2_pdf() -> bytes:
+    """One page whose picture is JBIG2 (MMR generic region, needs PDF.js's JBIG2 decoder): top half black."""
+    tiff = io.BytesIO()
+    _half_black("1").save(tiff, "TIFF", compression="group4")
+    reread = Image.open(io.BytesIO(tiff.getvalue()))
+    start, size = reread.tag_v2[273], reread.tag_v2[279]
+    start = start[0] if isinstance(start, tuple) else start
+    size = size[0] if isinstance(size, tuple) else size
+    mmr = tiff.getvalue()[start : start + size]
+
+    def segment(number: int, kind: int, body: bytes) -> bytes:
+        return struct.pack(">IBBBI", number, kind, 0, 1, len(body)) + body
+
+    page_info = struct.pack(">IIIIBH", 64, 64, 0, 0, 0, 0)
+    region = struct.pack(">IIIIB", 64, 64, 0, 0, 0) + bytes([1]) + mmr
+    return _image_pdf("JBIG2Decode", segment(0, 48, page_info) + segment(1, 38, region), 1)

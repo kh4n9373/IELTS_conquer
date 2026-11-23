@@ -45,10 +45,31 @@ export function KeyPage() {
   const reviewable = questions.filter((q) => filled(q.number) && !items.get(q.number)?.reviewed && !items.get(q.number)?.flagged).map((q) => q.number);
   const scan = key.data?.scan ?? null;
 
-  const saveAnswer = (number: number, text: string) => {
+  // What a row's box shows while it differs from the stored answer. Review always approves the stored
+  // answer, so it stays off while any box differs or is being saved.
+  const [drafts, setDrafts] = useState<Record<number, string>>({});
+  const [saving, setSaving] = useState(0);
+  const setDraft = (number: number, text: string | null) =>
+    setDrafts((d) => {
+      const { [number]: _gone, ...rest } = d;
+      return text === null ? rest : { ...rest, [number]: text };
+    });
+  const unsettled = saving > 0 || Object.keys(drafts).length > 0;
+
+  const commitAnswer = (number: number, text: string) => {
     const answers = toAnswers(text);
-    if (answers.length === 0 || answers.join('; ') === (items.get(number)?.answers ?? []).join('; ')) return;
-    run(() => testsApi.putKeyItems(test.id, { items: [{ number, answers }] }));
+    // An empty box or an unchanged answer goes back to what is stored. Answers cannot be cleared.
+    if (answers.length === 0 || answers.join('; ') === (items.get(number)?.answers ?? []).join('; ')) return setDraft(number, null);
+    setSaving((n) => n + 1);
+    run(async () => {
+      try {
+        await testsApi.putKeyItems(test.id, { items: [{ number, answers }] });
+        await client.invalidateQueries({ queryKey: keyQuery(test.id) });
+      } finally {
+        setSaving((n) => n - 1);
+        setDraft(number, null);
+      }
+    });
   };
   const onFile = (file: File | undefined) => {
     if (!file) return;
@@ -70,7 +91,7 @@ export function KeyPage() {
       <section className="panel" aria-label={t.tests.key.area}>
         <div className="panel-head">
           <strong className="big">{t.tests.key.reviewed(reviewed, questions.length)}</strong>
-          <button type="button" disabled={locked || reviewable.length === 0 || action.isPending} onClick={() => run(() => testsApi.reviewKey(test.id, reviewable))}>
+          <button type="button" disabled={locked || reviewable.length === 0 || action.isPending || unsettled} onClick={() => run(() => testsApi.reviewKey(test.id, reviewable))}>
             {t.tests.key.reviewClean}
           </button>
         </div>
@@ -101,13 +122,13 @@ export function KeyPage() {
                       <td className="muted">{t.tests.questionTypes[q.questionType]}{q.wordLimit ? ` (${q.wordLimit})` : ''}</td>
                       <td>
                         <input
-                          key={`${q.number}:${value}`}
                           type="text"
                           aria-label={t.tests.key.answerFor(q.number)}
-                          defaultValue={value}
+                          value={drafts[q.number] ?? value}
                           maxLength={400}
                           disabled={locked}
-                          onBlur={(e) => saveAnswer(q.number, e.target.value)}
+                          onChange={(e) => setDraft(q.number, e.target.value)}
+                          onBlur={(e) => commitAnswer(q.number, e.target.value)}
                         />
                       </td>
                       <td className="muted">
@@ -119,7 +140,7 @@ export function KeyPage() {
                           className={item?.reviewed && has ? 'review is-on' : 'secondary review'}
                           aria-label={t.tests.key.reviewLabel(q.number)}
                           aria-pressed={Boolean(item?.reviewed && has)}
-                          disabled={locked || !has || Boolean(item?.reviewed) || action.isPending}
+                          disabled={locked || !has || Boolean(item?.reviewed) || action.isPending || unsettled}
                           onClick={() => run(() => testsApi.reviewKey(test.id, [q.number]))}
                         >
                           {status}
