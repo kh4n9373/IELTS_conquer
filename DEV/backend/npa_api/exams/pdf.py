@@ -8,6 +8,7 @@ from typing import Any
 import pypdf
 import pypdfium2 as pdfium
 import pypdfium2.raw as pdfium_c
+from pypdf.errors import DependencyError
 
 MAX_PAGES = 100
 MAGIC = b"%PDF-"
@@ -62,7 +63,8 @@ def _leaf_pages(path: Path) -> tuple[int, int | None]:
                     raise PdfRejected("too_many_pages")
             else:
                 stack.extend(kids.get_object())
-    except PdfRejected:
+    except (PdfRejected, DependencyError):
+        # A missing library is a server fault, not a corrupt upload.
         raise
     except Exception as err:
         raise PdfRejected("corrupt_pdf") from err

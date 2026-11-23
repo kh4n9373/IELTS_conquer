@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from aes_pdf import make_aes_pdf
 from fakes import make_pdf
 
 from conftest import Harness
@@ -349,4 +350,41 @@ def test_cyclic_page_tree_is_rejected(tmp_path: Path) -> None:
     data = make_pdf(1).replace(b"/Kids [4 0 R]", b"/Kids [2 0 R 4 0 R]")
     path.write_bytes(data)
     with pytest.raises(PdfRejected):
+        inspect_pdf(path)
+
+
+def test_aes128_empty_password_pdf_with_object_streams_is_accepted(tmp_path: Path) -> None:
+    path = tmp_path / "aes128.pdf"
+    path.write_bytes(make_aes_pdf())
+    assert inspect_pdf(path).page_count == 1
+
+
+def test_aes256_empty_password_pdf_is_accepted(tmp_path: Path) -> None:
+    import io
+
+    import pypdf
+
+    writer = pypdf.PdfWriter()
+    writer.add_blank_page(200, 200)
+    writer.encrypt("", "owner-secret", algorithm="AES-256")
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    path = tmp_path / "aes256.pdf"
+    path.write_bytes(buffer.getvalue())
+    assert inspect_pdf(path).page_count == 1
+
+
+def test_missing_crypto_dependency_is_a_server_error_not_a_corrupt_upload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import pypdf
+    from pypdf.errors import DependencyError
+
+    def broken(*_: Any, **__: Any) -> Any:
+        raise DependencyError("cryptography>=3.1 is required for AES algorithm")
+
+    monkeypatch.setattr(pypdf, "PdfReader", broken)
+    path = tmp_path / "x.pdf"
+    path.write_bytes(make_pdf(1))
+    with pytest.raises(DependencyError):
         inspect_pdf(path)

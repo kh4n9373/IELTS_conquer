@@ -8,7 +8,7 @@ dependencies = [
   "fastapi>=0.115",
   "psycopg[binary,pool]>=3.2",
   "pydantic>=2.9",
-  "pypdf>=7.1.1",
+  "pypdf[crypto]>=7.1.1",
   "pypdfium2>=5.15.2",
   "uvicorn>=0.32",
 ]
@@ -55,6 +55,8 @@ known-first-party = ["npa_api", "conftest"]
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S"]
 "npa_api/testing.py" = ["S"]
+# Pure-Python AES fixture builder, kept compact on purpose.
+"tests/aes_pdf.py" = ["E", "B", "UP"]
 
 [tool.mypy]
 python_version = "3.13"
