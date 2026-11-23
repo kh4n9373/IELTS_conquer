@@ -180,6 +180,46 @@ def test_s13_toggle_keeps_typing_and_page(seeded: Browser) -> None:
 
 
 @pytest.mark.e2e
+def test_answer_panel_follows_the_passage_and_keeps_other_answers(seeded: Browser) -> None:
+    context = seeded.new_context(viewport={"width": 1280, "height": 800})
+    page = open_room(context)
+    expect(field(page, 1)).to_be_visible()
+    expect(field(page, PER_PASSAGE + 1)).to_have_count(0)  # passage 2 is not on screen yet
+    field(page, 1).fill("first passage")
+    expect(page.get_by_role("status").first).to_contain_text("Đã lưu lúc")
+    page.get_by_role("button", name="Passage 2", exact=True).click()
+    expect(field(page, 1)).to_have_count(0)
+    expect(field(page, PER_PASSAGE + 1)).to_be_visible()
+    expect(page.get_by_text("Trang 4 / 15")).to_be_visible()
+    page.get_by_role("button", name="Passage 1", exact=True).click()
+    expect(field(page, 1)).to_have_value("first passage")
+    page.get_by_role("button", name="Nộp bài").click()
+    # The warning still counts every question, not only this passage.
+    dialog = page.get_by_role("alertdialog")
+    expect(dialog).to_be_visible()
+    counts = [int(x) for x in dialog.locator(".exam-counts strong").all_inner_texts()]
+    assert counts[0] >= 1 and counts[0] + counts[1] == PASSAGES * PER_PASSAGE
+    context.close()
+
+
+@pytest.mark.e2e
+def test_phone_passage_tabs_jump_the_pdf_without_page_scroll(seeded: Browser) -> None:
+    context = seeded.new_context(viewport={"width": 320, "height": 640})
+    page = open_room(context)
+    page.get_by_role("button", name="Passage 3", exact=True).click()
+    expect(page.get_by_text("Trang 7 / 15")).to_be_visible()
+    page.get_by_role("button", name="Câu hỏi", exact=True).click()
+    expect(field(page, 2 * PER_PASSAGE + 1)).to_be_visible()
+    expect(field(page, 1)).to_have_count(0)
+    page.get_by_role("button", name="Passage 2", exact=True).click()
+    expect(field(page, PER_PASSAGE + 1)).to_be_visible()
+    page.get_by_role("button", name="Bài đọc", exact=True).click()
+    expect(page.get_by_text("Trang 4 / 15")).to_be_visible()
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    context.close()
+
+
+@pytest.mark.e2e
 def test_pdf_link_refreshes_without_reloading_the_room(seeded: Browser) -> None:
     context = seeded.new_context()
     refused: list[int] = []

@@ -44,6 +44,7 @@ export function ResultPage() {
 
 function Released({ data }: { data: ResultReleased | ResultPreview }) {
   const { t } = useI18n();
+  const dateTime = useDateTime();
   const [onlyWrong, setOnlyWrong] = useState(false);
   const rows = useMemo(() => data.items.filter((i) => !onlyWrong || !i.correct), [data.items, onlyWrong]);
   const hasBand = data.band !== undefined;
@@ -54,7 +55,11 @@ function Released({ data }: { data: ResultReleased | ResultPreview }) {
       : null;
   return (
     <>
-      <PageHead title={t.result.title} lede={t.result.attempt(data.attemptNumber)} />
+      <PageHead
+        eyebrow={t.result.title}
+        title={data.testTitle}
+        lede={`${t.result.attempt(data.attemptNumber)} · ${t.result.submittedAt(dateTime(data.submittedAt))}`}
+      />
       <div className={`res-stats${hasBand ? ' has-band' : ''}`}>
         <div className="res-stat"><strong>{`${data.correct}/${data.total}`}</strong><span>{t.result.correct}</span></div>
         <div className="res-stat"><strong>{`${Math.round(data.percent)}%`}</strong><span>{t.result.rate}</span></div>

@@ -67,7 +67,7 @@ export type ExamRoom = {
   status: AttemptStatus;
   deadlineAt: string;
   serverNow: string;
-  sections: { position: number; title: string; passagePages: number[]; questionPages: number[] }[];
+  sections: { position: number; title: string; passagePages: number[]; questionPages: number[]; numbers: number[] }[];
   questions: { number: number; type: QuestionType; wordLimit: number | null; group: number | null }[];
   answers: { number: number; value: string; marked: boolean; seq: number }[];
 };
@@ -79,6 +79,9 @@ export type ResultReleased = {
   released: true;
   status: AttemptStatus;
   attemptNumber: number;
+  testTitle: string;
+  /** ISO time the attempt was handed in. */
+  submittedAt: string;
   correct: number;
   total: number;
   percent: number;

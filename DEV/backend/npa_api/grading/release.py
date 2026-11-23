@@ -68,6 +68,8 @@ def build_result(row: dict[str, Any], *, released: bool) -> dict[str, Any]:
         "released": released,
         "status": row["status"],
         "attemptNumber": row["number"],
+        "testTitle": row["testTitle"],
+        "submittedAt": datetime.fromisoformat(row["finalizedAt"]).astimezone(UTC).isoformat(),
         "correct": run["correct"],
         "total": run["total"],
         "percent": float(run["percent"]),

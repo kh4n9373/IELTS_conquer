@@ -356,6 +356,7 @@ export const en: Copy = {
   result: {
     title: 'Results',
     attempt: (n: number) => `Attempt ${n}`,
+    submittedAt: (when: string) => `Submitted ${when}`,
     submittedTitle: 'Submitted',
     expected: (when: string) => `Results expected: ${when}`,
     releaseNote: 'Your teacher releases results when the group has finished or the deadline passes.',

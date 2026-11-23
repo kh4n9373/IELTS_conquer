@@ -192,6 +192,19 @@ def test_room_uses_allowlisted_fields_only(h: Harness, room: Room) -> None:
     assert set(view["questions"][0]) == {"number", "type", "wordLimit", "group"}
 
 
+def test_room_sections_list_their_question_numbers_and_nothing_else(h: Harness, room: Room) -> None:
+    aid, s = room.assign(h), room.students[0]
+    with h.later(hours=2):
+        attempt, _ = enter(h, s, aid)
+        view = h.call(s.cookie, "GET", f"/api/attempts/{attempt}").json
+    assert set(view["sections"][0]) == {"position", "title", "passagePages", "questionPages", "numbers"}
+    listed = [n for sec in view["sections"] for n in sec["numbers"]]
+    assert listed == sorted(q["number"] for q in view["questions"]) and listed
+    assert all(isinstance(n, int) for n in listed)
+    words = ("key", "correct", "answer", "accepted")
+    assert not any(w in t.lower() for t in walk(view["sections"]) for w in words)
+
+
 def test_pdf_url_only_for_assigned_student(h: Harness, room: Room) -> None:
     aid = room.assign(h, studentIds=[str(room.students[0].id)])
     with h.later(hours=2):

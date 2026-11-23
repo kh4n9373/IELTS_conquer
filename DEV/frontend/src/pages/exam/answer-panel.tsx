@@ -7,6 +7,7 @@ export type Answers = Record<number, LocalAnswer>;
 export const isAnswered = (a: LocalAnswer | undefined) => !!a && a.value.trim() !== '';
 
 type Props = {
+  /** Only the current passage's questions. Answers for the others stay in `answers`. */
   questions: ExamRoom['questions'];
   answers: Answers;
   current: number;

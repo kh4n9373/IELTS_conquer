@@ -154,6 +154,18 @@ def test_full_result_after_release(h: Harness, teacher: str, course_test: str) -
     assert "band" not in body
 
 
+def test_result_has_test_title_and_submit_time(h: Harness, teacher: str, course_test: str) -> None:
+    s = Setup(h, teacher, course_test, 1)
+    attempt = s.do(s.students[0], s.assign(), (1, "alpha-secret"))
+    body = s.result(s.students[0].cookie, attempt).json
+    assert body["testTitle"] == "M3 test"
+    assert body["attemptNumber"] == 1
+    # Submitted two hours after the harness start, as an aware UTC instant.
+    submitted = datetime.fromisoformat(body["submittedAt"])
+    assert submitted.tzinfo is not None and submitted.utcoffset() == timedelta(0)
+    assert submitted == h.now + timedelta(hours=2)
+
+
 def ielts_result(h: Harness, teacher: str, test_type: str) -> tuple[Setup, str]:
     answers = {n: [f"a{n}"] for n in range(1, 41)}
     tid = publish_test(h, teacher, answers=answers)

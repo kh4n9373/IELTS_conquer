@@ -357,6 +357,7 @@ export const vi = {
   result: {
     title: 'Kết quả',
     attempt: (n: number) => `Lần làm ${n}`,
+    submittedAt: (when: string) => `Nộp lúc ${when}`,
     submittedTitle: 'Đã nộp bài',
     expected: (when: string) => `Dự kiến có kết quả: ${when}`,
     releaseNote: 'Giáo viên công bố khi cả nhóm đã nộp hoặc khi hết hạn.',

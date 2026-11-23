@@ -265,7 +265,9 @@ begin
     'serverNow', p_now,
     'sections', coalesce((select jsonb_agg(jsonb_build_object(
         'position', s.position, 'title', s.title,
-        'passagePages', s.passage_pages, 'questionPages', s.question_pages) order by s.position)
+        'passagePages', s.passage_pages, 'questionPages', s.question_pages,
+        'numbers', (select coalesce(jsonb_agg(q.number order by q.number), '[]'::jsonb)
+                    from questions q where q.section_id = s.id)) order by s.position)
       from sections s where s.test_id = v_test.id), '[]'),
     'questions', coalesce((select jsonb_agg(jsonb_build_object(
         'number', q.number, 'type', q.question_type, 'wordLimit', q.word_limit, 'group', q.answer_group)
@@ -401,6 +403,7 @@ returns jsonb language sql stable security definer set search_path = public, pg_
   select jsonb_build_object(
     'attemptId', a.id, 'studentId', a.student_id, 'teacherId', a.teacher_id, 'status', a.status,
     'number', a.number, 'mode', a.mode, 'finalizedAt', a.finalized_at,
+    'testTitle', (select t.title from tests t where t.id = g.test_id),
     'assignment', jsonb_build_object('id', g.id, 'releasePolicy', g.release_policy, 'releaseAt', g.release_at,
                                      'dueAt', g.due_at, 'maxAttempts', g.max_attempts),
     'isTrial', (g.is_trial or exists (select 1 from classes c where c.id = g.class_id and c.is_trial)

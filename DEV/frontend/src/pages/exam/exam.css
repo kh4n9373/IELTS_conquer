@@ -79,7 +79,9 @@
   .exam-paper, .exam-sheet { grid-area: pane; padding: 12px 16px; border: 0; overflow: auto; }
   .exam-main[data-view='text'] .exam-sheet, .exam-main[data-view='q'] .exam-paper { visibility: hidden; pointer-events: none; }
   .exam-switch { padding: 0; }
-  .exam-tabs { display: none; }
+  .exam-tabs { display: flex; gap: 0; width: 100%; border-bottom: 1px solid var(--line); }
+  .exam-tabs .xb { flex: 1 1 0; min-width: 0; padding: 0 4px; font-size: 0.8125rem; }
+  .exam-switch { flex-direction: column; flex-wrap: nowrap; gap: 0; }
   .exam-toggle { display: grid; width: 100%; grid-template-columns: 1fr 1fr; border-width: 0 0 1px; }
   .exam-grid { grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); }
   .exam .exam-cell { min-height: 44px; }

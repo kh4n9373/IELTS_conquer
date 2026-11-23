@@ -131,6 +131,7 @@ function Room({ attemptId, room, tokenRef, clockRef, queue, restored }: RoomProp
   const firstPage = (index: number, kind: View) => room.sections[index]?.[kind === 'text' ? 'passagePages' : 'questionPages'][0] ?? 1;
   const [pdfPage, setPdfPage] = useState(() => firstPage(0, 'text'));
   const memo = useRef<Record<string, number>>({});
+  const wantFocus = useRef<number | null>(null);
   const [left, setLeft] = useState(() => clockRef.current.remainingMs(room.deadlineAt));
   const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -139,6 +140,13 @@ function Room({ attemptId, room, tokenRef, clockRef, queue, restored }: RoomProp
   const expired = left <= 0;
 
   useEffect(() => queue.subscribe(setSnap), [queue]);
+
+  // The row may only exist after the passage changed, so focus once the render is done.
+  useEffect(() => {
+    if (wantFocus.current === null) return;
+    document.getElementById(`exam-q${wantFocus.current}`)?.focus();
+    wantFocus.current = null;
+  });
 
   useEffect(() => {
     const tick = () => setLeft(clockRef.current.remainingMs(room.deadlineAt));
@@ -181,7 +189,12 @@ function Room({ attemptId, room, tokenRef, clockRef, queue, restored }: RoomProp
   };
   const pick = (number: number) => {
     setCurrent(number);
-    document.getElementById(`exam-q${number}`)?.focus();
+    const owner = room.sections.findIndex((s) => s.numbers.includes(number));
+    if (owner >= 0 && owner !== passage) {
+      setPassage(owner);
+      setPdfPage(memo.current[`${owner}:${phone ? 'text' : view}`] ?? firstPage(owner, phone ? 'text' : view));
+    }
+    wantFocus.current = number;
   };
 
   const remember = (page: number) => {
@@ -192,6 +205,16 @@ function Room({ attemptId, room, tokenRef, clockRef, queue, restored }: RoomProp
     setPassage(index);
     setView(kind);
     if (jump) setPdfPage(memo.current[`${index}:${kind}`] ?? firstPage(index, kind));
+    const numbers = room.sections[index]?.numbers ?? [];
+    if (index !== passage && numbers.length > 0 && !numbers.includes(current)) setCurrent(numbers[0] as number);
+  };
+  /** A passage tab. On a phone the pane stays as it is and the PDF jumps to that passage's pages. */
+  const pickPassage = (index: number) => {
+    if (!phone) return goTo(index, view, true);
+    setPassage(index);
+    setPdfPage(memo.current[`${index}:text`] ?? firstPage(index, 'text'));
+    const numbers = room.sections[index]?.numbers ?? [];
+    if (numbers.length > 0 && !numbers.includes(current)) setCurrent(numbers[0] as number);
   };
 
   /** Another device took over and this one wants the pen back. Edits made here while waiting are kept. */
@@ -259,6 +282,8 @@ function Room({ attemptId, room, tokenRef, clockRef, queue, restored }: RoomProp
             : null;
 
   const sections = room.sections;
+  const shownNumbers = sections[passage]?.numbers;
+  const shownQuestions = shownNumbers ? room.questions.filter((q) => shownNumbers.includes(q.number)) : room.questions;
   const hasPdf = room.pageCount !== null;
 
   return (
@@ -295,7 +320,7 @@ function Room({ attemptId, room, tokenRef, clockRef, queue, restored }: RoomProp
                 type="button"
                 className={`xb${i === passage ? ' is-on' : ''}`}
                 aria-pressed={i === passage}
-                onClick={() => goTo(i, view, !phone)}
+                onClick={() => pickPassage(i)}
               >
                 {s.title}
               </button>
@@ -321,7 +346,7 @@ function Room({ attemptId, room, tokenRef, clockRef, queue, restored }: RoomProp
           />
         </section>
         <AnswerPanel
-          questions={room.questions}
+          questions={shownQuestions}
           answers={answers}
           current={current}
           locked={readOnly}
