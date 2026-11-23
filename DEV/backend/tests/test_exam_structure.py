@@ -158,3 +158,18 @@ def test_create_requires_test_type_and_duration(h: Harness, t: dict[str, str], m
     del body[missing]
     res = h.call(t["a"], "POST", "/api/tests", body)
     assert (res.status, res.json) == (400, {"error": "invalid_input"})
+
+
+def test_readiness_pure_sections_without_questions_is_a_gap() -> None:
+    test = {"test_type": "course", "duration_minutes": 60}
+    assets = [{"kind": "student_pdf", "page_count": 3}]
+    sections = [{"passage_pages": [1], "question_pages": [2]}]
+    assert readiness(test, assets, sections, [], []) == ["question_gap"]
+
+
+def test_course_test_with_empty_ranges_is_not_ready(h: Harness, t: dict[str, str]) -> None:
+    tid = make(h, t["a"], testType="course")
+    assert put(h, t["a"], tid, section()).status == 200
+    res = h.call(t["a"], "GET", f"/api/tests/{tid}/readiness").json
+    assert res["ready"] is False
+    assert "question_gap" in res["blockers"]

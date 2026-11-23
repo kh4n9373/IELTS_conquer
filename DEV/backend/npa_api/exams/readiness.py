@@ -36,7 +36,7 @@ def readiness(
                 add("page_out_of_range")
 
     numbers = sorted(q["number"] for q in questions)
-    if questions and numbers != list(range(1, len(numbers) + 1)):
+    if (sections and not questions) or numbers != list(range(1, len(numbers) + 1)):
         add("question_gap")
     if any(q.get("question_type") not in QUESTION_GROUPS for q in questions):
         add("missing_type")
