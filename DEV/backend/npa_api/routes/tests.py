@@ -151,6 +151,17 @@ def asset_summary(tx: Conn, test_id: UUID) -> dict[str, Any] | None:
     ).fetchone()
 
 
+def ocr_summary(tx: Conn, test_id: UUID) -> dict[str, Any] | None:
+    """State and fixed error code only: never OCR text, provider ids or lease data."""
+    return tx.execute(
+        """select j.state, j.error_code as "errorCode"
+           from ocr_jobs j join test_assets a on a.id = j.asset_id
+           where a.test_id = %s and a.kind = 'student_pdf'
+           order by j.created_at desc limit 1""",
+        (test_id,),
+    ).fetchone()
+
+
 def detail(tx: Conn, test: dict[str, Any]) -> dict[str, Any]:
     sections = load_structure(tx, test["id"])
     return {**public(test), "studentPdf": asset_summary(tx, test["id"]), "sections": sections}
@@ -193,7 +204,7 @@ def get_test(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
         ).fetchone()
         if test is None:
             raise not_found()
-        return detail(tx, test)
+        return {**detail(tx, test), "ocr": ocr_summary(tx, id)}
 
 
 @router.patch("/api/tests/{id}")

@@ -183,7 +183,7 @@ def test_ocr_claim_not_executable_by_teacher_role(db: TestDb, w: World) -> None:
 
 def test_ocr_finish_not_executable_by_teacher_role(db: TestDb, w: World) -> None:
     with pytest.raises(psycopg.errors.InsufficientPrivilege), with_identity(db.app_pool, w.a) as tx:
-        tx.execute("select app.ocr_finish(gen_random_uuid(), 'done', null, now())")
+        tx.execute("select app.ocr_finish(gen_random_uuid(), 1, 'failed', null, null, now())")
 
 
 def _job(db: TestDb, w: World) -> UUID:
@@ -227,34 +227,75 @@ def test_ocr_claim_and_finish_lifecycle(db: TestDb, w: World) -> None:
             (now + timedelta(minutes=6), now + timedelta(minutes=11)),
         ).fetchall()
     assert again[0]["attempts"] == 2
+    retry_at = now + timedelta(minutes=20)
     with db.app_pool.connection() as conn:
-        conn.execute("select app.ocr_finish(%s, 'failed', 'ocr_timeout', %s)", (job, now))
+        # The attempt that lost the lease is fenced out.
+        stale = conn.execute(
+            "select app.ocr_finish(%s, 1, 'failed', 'provider_error', null, %s) as ok", (job, now)
+        ).fetchone()
+        assert stale is not None and stale["ok"] is False
+        current = conn.execute(
+            "select app.ocr_finish(%s, 2, 'queued', 'provider_error', %s, %s) as ok", (job, retry_at, now)
+        ).fetchone()
+        assert current is not None and current["ok"] is True
     row = _state(db, job)
-    assert (row["state"], row["error_code"], row["finished_at"]) == ("failed", "ocr_timeout", now)
+    assert (row["state"], row["finished_at"], row["lease_until"]) == ("queued", None, retry_at)
     with db.app_pool.connection() as conn:
-        conn.execute("select app.ocr_finish(%s, 'queued', null, %s)", (job, now))
+        assert conn.execute("select * from app.ocr_claim(%s, %s)", (now, now)).fetchall() == []
+        third = conn.execute("select * from app.ocr_claim(%s, %s)", (retry_at, retry_at)).fetchall()
+        assert third[0]["attempts"] == 3
+        conn.execute("select app.ocr_finish(%s, 3, 'failed', 'provider_timeout', null, %s)", (job, now))
     row = _state(db, job)
-    assert (row["state"], row["finished_at"], row["lease_until"]) == ("queued", None, None)
+    assert (row["state"], row["error_code"], row["finished_at"], row["lease_until"]) == (
+        "failed",
+        "provider_timeout",
+        now,
+        None,
+    )
+
+
+def test_ocr_claim_fails_expired_job_at_three_attempts(db: TestDb, w: World) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    with db.owner_pool.connection() as conn:
+        conn.execute("delete from ocr_jobs")
+    job = _job(db, w)
+    now = datetime(2026, 11, 22, 3, tzinfo=UTC)
+    with db.owner_pool.connection() as conn:
+        conn.execute(
+            "update ocr_jobs set state = 'running', attempts = 3, lease_until = %s where id = %s",
+            (now - timedelta(seconds=1), job),
+        )
     with db.app_pool.connection() as conn:
-        conn.execute("select app.ocr_finish(%s, 'done', null, %s)", (job, now))
-    assert _state(db, job)["state"] == "done"
+        assert conn.execute("select * from app.ocr_claim(%s, %s)", (now, now)).fetchall() == []
+    row = _state(db, job)
+    assert (row["state"], row["error_code"], row["attempts"]) == ("failed", "lease_expired", 3)
 
 
 def test_ocr_finish_touches_only_given_job_and_validates_state(db: TestDb, w: World) -> None:
-    from datetime import UTC, datetime
+    from datetime import UTC, datetime, timedelta
 
     with db.owner_pool.connection() as conn:
         conn.execute("delete from ocr_jobs")
     one, two = _job(db, w), _job(db, w)
     now = datetime(2026, 11, 22, 3, tzinfo=UTC)
+    with db.owner_pool.connection() as conn:
+        conn.execute(
+            "update ocr_jobs set state = 'running', attempts = 1, lease_until = %s",
+            (now + timedelta(minutes=5),),
+        )
     with db.app_pool.connection() as conn:
-        conn.execute("select app.ocr_finish(%s, 'done', null, %s)", (one, now))
-    assert _state(db, one)["state"] == "done"
-    assert _state(db, two)["state"] == "queued"
-    with pytest.raises(psycopg.Error, match="invalid_state"), db.app_pool.connection() as conn:
-        conn.execute("select app.ocr_finish(%s, 'running', null, %s)", (two, now))
+        conn.execute("select app.ocr_finish(%s, 1, 'failed', 'bad_result', null, %s)", (one, now))
+    assert _state(db, one)["state"] == "failed"
+    assert _state(db, two)["state"] == "running"
+    for state in ("running", "done"):
+        with pytest.raises(psycopg.Error, match="invalid_state"), db.app_pool.connection() as conn:
+            conn.execute("select app.ocr_finish(%s, 1, %s, null, null, %s)", (two, state, now))
     with db.app_pool.connection() as conn:  # unknown job is a safe no-op
-        conn.execute("select app.ocr_finish(gen_random_uuid(), 'done', null, %s)", (now,))
+        row = conn.execute(
+            "select app.ocr_finish(gen_random_uuid(), 1, 'failed', 'bad_result', null, %s) as ok", (now,)
+        ).fetchone()
+    assert row is not None and row["ok"] is False
 
 
 def _version(tx: Any, w: World, number: int, approved: bool = False) -> UUID:

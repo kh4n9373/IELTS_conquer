@@ -81,7 +81,7 @@ create table ocr_jobs (
   attempts int not null default 0,
   lease_until timestamptz,
   provider_job_id text,
-  error_code text,
+  error_code text check (error_code ~ '^[a-z0-9_]{1,64}$'),
   created_at timestamptz not null default now(),
   finished_at timestamptz,
   foreign key (asset_id, teacher_id) references test_assets (id, teacher_id) on delete cascade
@@ -211,39 +211,58 @@ create policy answer_key_items_teacher on keys.answer_key_items for all
 -- The worker has no user identity, so it claims and settles jobs through definer functions.
 create function app.ocr_claim(p_now timestamptz, p_lease_until timestamptz)
 returns table (id uuid, asset_id uuid, teacher_id uuid, attempts int, provider_job_id text)
-language sql security definer set search_path = public, pg_temp as $$
+language plpgsql security definer set search_path = public, pg_temp as $$
+#variable_conflict use_column
+begin
+  -- A worker that died on its last attempt leaves a lease nobody may renew.
+  update ocr_jobs j
+  set state = 'failed', error_code = 'lease_expired', lease_until = null, finished_at = p_now
+  where j.id in (
+    select c.id from ocr_jobs c
+    where c.state = 'running' and c.lease_until < p_now and c.attempts >= 3
+    for update skip locked
+  );
+
+  return query
   update ocr_jobs j
   set state = 'running', attempts = j.attempts + 1, lease_until = p_lease_until
   where j.id = (
     select c.id from ocr_jobs c
-    where c.state = 'queued' or (c.state = 'running' and c.lease_until < p_now)
+    where c.attempts < 3
+      and ((c.state = 'queued' and (c.lease_until is null or c.lease_until <= p_now))
+        or (c.state = 'running' and c.lease_until < p_now))
     order by c.created_at
     limit 1
     for update skip locked
   )
-  returning j.id, j.asset_id, j.teacher_id, j.attempts, j.provider_job_id
-$$;
+  returning j.id, j.asset_id, j.teacher_id, j.attempts, j.provider_job_id;
+end $$;
 
-create function app.ocr_finish(p_job uuid, p_state text, p_error text, p_now timestamptz)
-returns void language plpgsql security definer set search_path = public, pg_temp as $$
+-- Fenced by attempt: a worker that lost its lease cannot settle the job. Success is written
+-- by the worker under the teacher's identity, so 'done' is not accepted here.
+create function app.ocr_finish(
+  p_job uuid, p_attempt int, p_state text, p_error text, p_retry_at timestamptz, p_now timestamptz
+)
+returns boolean language plpgsql security definer set search_path = public, pg_temp as $$
 begin
-  if p_state is null or p_state not in ('done', 'failed', 'queued') then
+  if p_state is null or p_state not in ('failed', 'queued') then
     raise exception 'invalid_state';
   end if;
   update ocr_jobs
   set state = p_state,
       error_code = p_error,
-      lease_until = null,
+      lease_until = case when p_state = 'queued' then p_retry_at else null end,
       finished_at = case when p_state = 'queued' then null else p_now end
-  where id = p_job;
+  where id = p_job and state = 'running' and attempts = p_attempt;
+  return found;
 end $$;
 
 -- 0002's blanket revoke only covered functions that existed then.
 revoke execute on function
   app.ocr_claim(timestamptz, timestamptz),
-  app.ocr_finish(uuid, text, text, timestamptz)
+  app.ocr_finish(uuid, int, text, text, timestamptz, timestamptz)
   from public;
 grant execute on function
   app.ocr_claim(timestamptz, timestamptz),
-  app.ocr_finish(uuid, text, text, timestamptz)
+  app.ocr_finish(uuid, int, text, text, timestamptz, timestamptz)
   to npa_app;

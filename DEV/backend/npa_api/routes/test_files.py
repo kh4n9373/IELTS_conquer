@@ -60,12 +60,18 @@ def commit_asset(
         old = tx.execute(
             "delete from test_assets where test_id = %s and kind = %s returning storage_key", (test_id, kind)
         ).fetchone()
-        tx.execute(
+        asset = tx.execute(
             """insert into test_assets
                  (test_id, teacher_id, kind, storage_key, sha256, byte_size, page_count, has_text_layer)
-               values (%s, %s, %s, %s, %s, %s, %s, %s)""",
+               values (%s, %s, %s, %s, %s, %s, %s, %s) returning id""",
             (test_id, test["teacher_id"], kind, key, info.sha256, size, info.page_count, info.has_text_layer),
-        )
+        ).fetchone()
+        assert asset is not None  # noqa: S101
+        if kind == "student_pdf":
+            tx.execute(
+                "insert into ocr_jobs (asset_id, teacher_id) values (%s, %s)",
+                (asset["id"], test["teacher_id"]),
+            )
         write_audit(
             tx,
             action="test.asset_upload",
@@ -144,3 +150,32 @@ def pdf_url(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
         raise not_found()
     url = ctx.store.signed_url(asset["storage_key"], URL_SECONDS)
     return JSONResponse({"url": url, "expiresIn": URL_SECONDS}, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/api/tests/{id}/ocr")
+@access(TEACHER)
+def retry_ocr(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
+    with with_identity(ctx.pool, identity) as tx:
+        test = lock_test(tx, id)
+        if test["status"] == "archived":
+            raise HttpError(409, "test_locked")
+        asset = tx.execute(
+            "select id from test_assets where test_id = %s and kind = 'student_pdf'", (id,)
+        ).fetchone()
+        if asset is None:
+            raise not_found()
+        job = tx.execute(
+            "select id, state from ocr_jobs where asset_id = %s order by created_at desc limit 1 for update",
+            (asset["id"],),
+        ).fetchone()
+        if job is None or job["state"] != "failed":
+            raise HttpError(409, "ocr_not_retryable")
+        tx.execute(
+            """update ocr_jobs
+               set state = 'queued', attempts = 0, lease_until = null, provider_job_id = null,
+                   error_code = null, finished_at = null
+               where id = %s""",
+            (job["id"],),
+        )
+        write_audit(tx, action="test.ocr_retry", entity="test", entity_id=id)
+    return {"state": "queued", "errorCode": None}

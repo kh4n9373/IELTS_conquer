@@ -48,6 +48,7 @@ MATRIX: dict[str, tuple[Any, int | None]] = {
     "PUT /api/tests/{id}/pdf": (None, 404),
     "PUT /api/tests/{id}/key-source": (None, 404),
     "GET /api/tests/{id}/pdf-url": (None, 404),
+    "POST /api/tests/{id}/ocr": (None, 404),
     "POST /api/tests/{id}/publish": (None, 404),
     "POST /api/tests/{id}/archive": (None, 404),
 }
