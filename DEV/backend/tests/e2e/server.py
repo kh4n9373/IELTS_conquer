@@ -59,6 +59,25 @@ try:
     def e2e_whoami() -> dict[str, str]:
         return {"nonce": os.environ["E2E_NONCE"]}
 
+    @app.post("/api/e2e/seed-class")
+    async def e2e_seed_class(request: Request) -> dict[str, Any]:
+        """Invented teacher, class and students with a known password, so a room test skips sign-up."""
+        body = await request.json()
+        password_hash = hash_password(body["password"])
+        teacher_id = db.insert_user(body["teacher"], "teacher", password_hash=password_hash)
+        with db.owner_pool.connection() as conn:
+            row = conn.execute(
+                "insert into classes (teacher_id, name) values (%s, 'Room class') returning id", (teacher_id,)
+            ).fetchone()
+            assert row is not None
+            for email in body["students"]:
+                student_id = db.insert_user(email, "student", teacher_id, password_hash)
+                conn.execute(
+                    "insert into class_members (class_id, teacher_id, student_id) values (%s, %s, %s)",
+                    (row["id"], teacher_id, student_id),
+                )
+        return {"classId": str(row["id"])}
+
     @app.post("/api/e2e/ocr-fail")
     async def e2e_ocr_fail(request: Request) -> dict[str, Any]:
         """Stands in for a failed provider call, so no worker and no OCR token are needed."""

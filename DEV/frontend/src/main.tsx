@@ -10,7 +10,8 @@ import { AssignmentDetailPage } from './pages/assignments/detail';
 import { AssignmentsPage } from './pages/assignments/list';
 import { ClassDetailPage, ClassesPage } from './pages/classes';
 import { JoinPage } from './pages/join';
-import { ExamPlaceholder, ResultPlaceholder, SettingsPage, StudentHomePage } from './pages/student';
+import { ExamRoomPage } from './pages/exam/room';
+import { ResultPlaceholder, SettingsPage, StudentHomePage } from './pages/student';
 import { DetailsPage, EditorLayout, NewTestPage } from './pages/tests/editor';
 import { KeyPage } from './pages/tests/key';
 import { TestListPage } from './pages/tests/list';
@@ -82,7 +83,7 @@ const router = createBrowserRouter(
         </Route>
         <Route element={<RoleGate roles={['student']} />}>
           <Route path="/home" element={<StudentHomePage />} />
-          <Route path="/exam/:attemptId" element={<ExamPlaceholder />} />
+          <Route path="/exam/:attemptId" element={<ExamRoomPage />} />
           <Route path="/results/:attemptId" element={<ResultPlaceholder />} />
         </Route>
         <Route element={<RoleGate roles={['student', 'teacher']} />}>
