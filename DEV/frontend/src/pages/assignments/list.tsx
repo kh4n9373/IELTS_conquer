@@ -23,7 +23,7 @@ export function useDateTime() {
 }
 
 /** A datetime-local value is read as Vietnam time. */
-const toIso = (local: string) => new Date(`${local}:00+07:00`).toISOString();
+export const toIso = (local: string) => new Date(`${local}:00+07:00`).toISOString();
 
 export function AssignmentsPage() {
   const me = useMe();
@@ -31,7 +31,7 @@ export function AssignmentsPage() {
   return me.data.role === 'teacher' ? <TeacherAssignments /> : <MyAssignments />;
 }
 
-function defaultRelease(attempts: number): ReleasePolicy {
+export function defaultRelease(attempts: number): ReleasePolicy {
   return attempts === 1 ? 'after_submit' : 'after_last';
 }
 
@@ -231,8 +231,12 @@ function MyAssignments() {
 
   const actionOf = (row: MyAssignment): Action => {
     const used = row.attemptsUsed >= row.maxAttempts;
-    if (row.status === 'open' && (row.inProgress || !used)) {
-      return { label: row.inProgress ? t.my.cont : t.my.start, run: () => start.mutate(row.id), primary: !row.inProgress };
+    if (row.inProgress && row.latestAttemptId) {
+      const id = row.latestAttemptId;
+      return { label: t.my.cont, run: () => navigate(`/exam/${id}`, { viewTransition: true }), primary: false };
+    }
+    if (row.status === 'open' && !used) {
+      return { label: t.my.start, run: () => start.mutate(row.id), primary: true };
     }
     if (row.attemptsUsed > 0 && row.latestAttemptId) {
       const id = row.latestAttemptId;
@@ -260,7 +264,7 @@ function MyAssignments() {
                   <span className="kicker">{kicker(row)}</span>
                   <h2>{row.testTitle ?? t.my.untitled}</h2>
                   <span className="muted">
-                    {[row.className, row.status === 'upcoming' ? t.my.metaOpens(dateTime(row.opensAt)) : t.my.meta(dateTime(row.dueAt), null, row.maxAttempts), t.assignments.modes[row.mode], t.my.used(row.attemptsUsed, row.maxAttempts)].filter(Boolean).join(' · ')}
+                    {[row.className, row.status === 'upcoming' ? t.my.metaOpens(dateTime(row.opensAt)) : t.my.meta(dateTime(row.dueAt), row.durationMinutes === null ? null : t.my.minutes(row.durationMinutes), row.maxAttempts), t.assignments.modes[row.mode], t.my.used(row.attemptsUsed, row.maxAttempts)].filter(Boolean).join(' · ')}
                   </span>
                 </div>
                 <button type="button" className={`cta secondary${action.primary ? ' is-primary' : ''}`} disabled={action.run === null || start.isPending} onClick={() => action.run?.()}>{action.label}</button>

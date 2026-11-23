@@ -455,9 +455,9 @@ grant execute on function
 
 -- Students cannot read tests; this gives them the title of assignments they received, nothing else.
 create function app.my_assignment_titles()
-returns table (assignment_id uuid, title text)
+returns table (assignment_id uuid, title text, duration_minutes int)
 language sql stable security definer set search_path = public, pg_temp as $$
-  select g.id, t.title from assignments g
+  select g.id, t.title, t.duration_minutes from assignments g
   join assignment_recipients r on r.assignment_id = g.id and r.student_id = app.user_id()
   join tests t on t.id = g.test_id
 $$;

@@ -281,3 +281,22 @@ def test_blank_clears_answer_but_keeps_review_mark(h: Harness, room: Room) -> No
         got = answers(h, s, attempt)[1]
     assert got["value"] == "" and got["marked"] is True
     assert json.dumps(got).count("abc") == 0
+
+
+def test_my_assignments_link_only_own_attempts(h: Harness, room: Room) -> None:
+    aid = room.assign(h)
+    a, b = room.students
+    with h.later(hours=2):
+        before = {r["id"]: r for r in h.call(a.cookie, "GET", "/api/my/assignments").json}[aid]
+        assert (before["inProgress"], before["latestAttemptId"]) == (False, None)
+        assert before["durationMinutes"] > 0
+        mine, _ = enter(h, a, aid)
+        theirs, _ = enter(h, b, aid)
+        row_a = {r["id"]: r for r in h.call(a.cookie, "GET", "/api/my/assignments").json}[aid]
+        row_b = {r["id"]: r for r in h.call(b.cookie, "GET", "/api/my/assignments").json}[aid]
+        assert (row_a["inProgress"], row_a["latestAttemptId"]) == (True, mine)
+        assert row_b["latestAttemptId"] == theirs != mine
+        h.owner_rows("update attempts set status = 'submitted' where id = %s", (mine,))
+        done = {r["id"]: r for r in h.call(a.cookie, "GET", "/api/my/assignments").json}[aid]
+        assert (done["inProgress"], done["latestAttemptId"]) == (False, mine)
+        assert not {"key", "answers", "score", "correct", "percent", "testId"} & done.keys()

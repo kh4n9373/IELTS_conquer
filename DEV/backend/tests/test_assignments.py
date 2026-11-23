@@ -179,6 +179,7 @@ def test_student_list_has_no_key_fields(h: Harness, room: Room) -> None:
     row = next(a for a in mine if a["id"] == aid)
     assert set(row) == {
         "id", "testTitle", "className", "opensAt", "dueAt", "maxAttempts", "mode", "status", "attemptsUsed",
+        "durationMinutes", "inProgress", "latestAttemptId",
     }  # fmt: skip
     assert row["testTitle"] == "M3 test"
     dump = json.dumps(mine).lower()

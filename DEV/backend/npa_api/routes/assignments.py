@@ -288,18 +288,24 @@ def my_assignments(ctx: CtxDep, identity: IdentityDep) -> Any:
             """select g.id, c.name as "className", g.opens_at as "opensAt", g.due_at as "dueAt",
                       g.max_attempts as "maxAttempts", g.mode, g.cancelled_at as "cancelledAt",
                       (select count(*) from attempts a
-                        where a.assignment_id = g.id and a.student_id = app.user_id())::int as "attemptsUsed"
+                        where a.assignment_id = g.id and a.student_id = app.user_id())::int as "attemptsUsed",
+                      exists (select 1 from attempts a where a.assignment_id = g.id
+                               and a.student_id = app.user_id() and a.status = 'in_progress') as "inProgress",
+                      (select a.id from attempts a where a.assignment_id = g.id
+                        and a.student_id = app.user_id() order by a.number desc limit 1) as "latestAttemptId"
                from assignments g left join classes c on c.id = g.class_id
                order by g.opens_at desc"""
         ).fetchall()
-        titles = {
-            t["assignment_id"]: t["title"] for t in tx.execute("select * from app.my_assignment_titles()")
-        }
+        titles = {t["assignment_id"]: t for t in tx.execute("select * from app.my_assignment_titles()")}
         out = []
         for r in rows:
             status = status_of(r, ctx.now())
             out.append(
                 {k: v for k, v in r.items() if k != "cancelledAt"}
-                | {"status": status, "testTitle": titles.get(r["id"])}
+                | {
+                    "status": status,
+                    "testTitle": titles[r["id"]]["title"] if r["id"] in titles else None,
+                    "durationMinutes": titles[r["id"]]["duration_minutes"] if r["id"] in titles else None,
+                }
             )
         return out

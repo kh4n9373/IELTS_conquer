@@ -1,10 +1,87 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import { ErrorAlert, Loading, order, PageHead, useConfirm } from '../../components/ui';
-import { examApi, type RecipientState } from '../../lib/exam-api';
+import { ErrorAlert, Loading, Notice, order, PageHead, useConfirm } from '../../components/ui';
+import { examApi, type AssignmentDetail, type AssignmentMode, type RecipientState, type ReleasePolicy } from '../../lib/exam-api';
 import { useI18n } from '../../lib/i18n';
-import { useDateTime } from './list';
+import { toIso, useDateTime } from './list';
 import './assignments.css';
+
+/** An ISO instant as a datetime-local value in Vietnam time. */
+const toLocal = (iso: string) => new Date(new Date(iso).getTime() + 7 * 3600_000).toISOString().slice(0, 16);
+
+function EditForm({ row, onDone }: { row: AssignmentDetail; onDone: (saved: boolean) => void }) {
+  const { t } = useI18n();
+  const client = useQueryClient();
+  const [opens, setOpens] = useState(toLocal(row.opensAt));
+  const [due, setDue] = useState(toLocal(row.dueAt));
+  const [attempts, setAttempts] = useState(row.maxAttempts);
+  const [mode, setMode] = useState<AssignmentMode>(row.mode);
+  const [policy, setPolicy] = useState<ReleasePolicy>(row.releasePolicy);
+  const [releaseAt, setReleaseAt] = useState(row.releaseAt ? toLocal(row.releaseAt) : '');
+  const save = useMutation({
+    mutationFn: (e: FormEvent) => {
+      e.preventDefault();
+      return examApi.updateAssignment(row.id, {
+        opensAt: toIso(opens),
+        dueAt: toIso(due),
+        maxAttempts: attempts,
+        mode,
+        releasePolicy: policy,
+        ...(policy === 'scheduled' ? { releaseAt: toIso(releaseAt) } : {}),
+      });
+    },
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ['assignments'] });
+      client.invalidateQueries({ queryKey: ['assignment', row.id] });
+      onDone(true);
+    },
+  });
+  return (
+    <form className="asg-form" onSubmit={(e) => save.mutate(e)} aria-label={t.assignments.editTitle}>
+      <label className="plain">{t.assignments.opens}
+        <input type="datetime-local" value={opens} onChange={(e) => setOpens(e.target.value)} required />
+      </label>
+      <label className="plain">{t.assignments.due}
+        <input type="datetime-local" value={due} onChange={(e) => setDue(e.target.value)} required />
+      </label>
+      <fieldset>
+        <legend>{t.assignments.attempts}</legend>
+        <span className="seg">
+          {[1, 2, 3, 4, 5].map((n) => (
+            <button key={n} type="button" className="secondary" aria-pressed={n === attempts} onClick={() => setAttempts(n)}>{n}</button>
+          ))}
+        </span>
+      </fieldset>
+      <fieldset>
+        <legend>{t.assignments.mode}</legend>
+        <span className="seg">
+          {(['exam', 'practice'] as const).map((m) => (
+            <button key={m} type="button" className="secondary" aria-pressed={m === mode} onClick={() => setMode(m)}>{t.assignments.modes[m]}</button>
+          ))}
+        </span>
+      </fieldset>
+      <fieldset className="wide">
+        <legend>{t.assignments.release}</legend>
+        <span className="seg stack-v">
+          {(['after_submit', 'after_last', 'scheduled'] as const).map((p) => (
+            <button key={p} type="button" className="secondary" aria-pressed={p === policy} onClick={() => setPolicy(p)}>{t.assignments.releaseOpts[p]}</button>
+          ))}
+        </span>
+      </fieldset>
+      {policy === 'scheduled' && (
+        <label className="plain wide">{t.assignments.releaseAt}
+          <input type="datetime-local" value={releaseAt} onChange={(e) => setReleaseAt(e.target.value)} required />
+        </label>
+      )}
+      <div className="wide"><ErrorAlert error={save.error} /></div>
+      <div className="row-actions end wide">
+        <button type="button" className="secondary" onClick={() => onDone(false)}>{t.common.cancel}</button>
+        <button type="submit" disabled={save.isPending}>{t.assignments.save}</button>
+      </div>
+    </form>
+  );
+}
 
 export function AssignmentDetailPage() {
   const { id = '' } = useParams();
@@ -13,6 +90,8 @@ export function AssignmentDetailPage() {
   const client = useQueryClient();
   const navigate = useNavigate();
   const { ask, dialog } = useConfirm();
+  const [editing, setEditing] = useState(false);
+  const [saved, setSaved] = useState(false);
   const detail = useQuery({ queryKey: ['assignment', id], queryFn: () => examApi.getAssignment(id) });
   const cancel = useMutation({
     mutationFn: () => examApi.cancelAssignment(id),
@@ -37,6 +116,9 @@ export function AssignmentDetailPage() {
         lede={row ? t.assignments.detailMeta(row.className, t.assignments.status[row.status], dateTime(row.dueAt)) : undefined}
       >
         {row && (
+          <button type="button" className="secondary" disabled={locked || editing} onClick={() => { setSaved(false); setEditing(true); }}>{t.assignments.edit}</button>
+        )}
+        {row && (
           <button
             type="button"
             className="secondary danger"
@@ -52,6 +134,8 @@ export function AssignmentDetailPage() {
         {detail.isPending && <Loading />}
         {row && (
           <>
+            {saved && !editing && <Notice>{t.assignments.saved}</Notice>}
+            {editing && !locked && <EditForm row={row} onDone={(ok) => { setEditing(false); setSaved(ok); }} />}
             {started && <p className="lock-note">{t.assignments.startedLock}</p>}
             <div className="stat-row">
               <div className="stat"><strong>{count('not_started')}</strong>{t.assignments.notStarted}</div>

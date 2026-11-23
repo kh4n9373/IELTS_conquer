@@ -53,9 +53,9 @@ export type MyAssignment = {
   mode: AssignmentMode;
   attemptsUsed: number;
   status: AssignmentStatus;
-  /** Optional hints. Absent until the server sends them. */
-  inProgress?: boolean;
-  latestAttemptId?: string | null;
+  durationMinutes: number | null;
+  inProgress: boolean;
+  latestAttemptId: string | null;
 };
 
 export type ExamRoom = {
