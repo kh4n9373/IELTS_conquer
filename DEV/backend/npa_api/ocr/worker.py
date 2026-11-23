@@ -75,7 +75,8 @@ def submit(pool: Pool, store: FileStore, provider: OcrProvider, job: Claim, key:
 
 
 def clean_pages(pages: list[OcrPage], page_count: int) -> list[tuple[int, str]]:
-    if not pages:
+    # A partial result must not look like a finished scan.
+    if len(pages) != page_count:
         raise OcrError("bad_result")
     seen: set[int] = set()
     out: list[tuple[int, str]] = []

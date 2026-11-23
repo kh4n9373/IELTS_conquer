@@ -170,12 +170,10 @@ def retry_ocr(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
         ).fetchone()
         if job is None or job["state"] != "failed":
             raise HttpError(409, "ocr_not_retryable")
+        # A new row, not a reset: a stale worker's fence on the old id can then never match.
+        tx.execute("delete from ocr_jobs where id = %s", (job["id"],))
         tx.execute(
-            """update ocr_jobs
-               set state = 'queued', attempts = 0, lease_until = null, provider_job_id = null,
-                   error_code = null, finished_at = null
-               where id = %s""",
-            (job["id"],),
+            "insert into ocr_jobs (asset_id, teacher_id) values (%s, %s)", (asset["id"], test["teacher_id"])
         )
         write_audit(tx, action="test.ocr_retry", entity="test", entity_id=id)
     return {"state": "queued", "errorCode": None}

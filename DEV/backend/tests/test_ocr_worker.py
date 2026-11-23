@@ -40,7 +40,7 @@ class FakeProvider:
         self.submitted: list[bytes] = []
         self.polled: list[str] = []
         self.states = states if states is not None else ["done"]
-        self.result = result if result is not None else [page(1)]
+        self.result = result if result is not None else [page(1), page(2)]
         self.submit_error: OcrError | None = None
 
     def submit(self, path: Path) -> str:
@@ -274,12 +274,30 @@ def test_quota_429_is_retryable_with_error_code(h: Harness, t: dict[str, Any]) -
     )
 
 
-@pytest.mark.parametrize("bad", [[page(0)], [page(3)], [page(1), page(1)], [], [page(1, "lone \ud800")]])
+@pytest.mark.parametrize(
+    "bad",
+    [
+        [page(0), page(1)],
+        [page(1), page(3)],
+        [page(1), page(1)],
+        [],
+        [page(1), page(2, "lone \ud800")],
+    ],
+)
 def test_invalid_result_is_bad_result(h: Harness, t: dict[str, Any], bad: list[OcrPage]) -> None:
     tid, clock = setup_job(h, t)
     once(h, FakeProvider(result=bad), clock)
     job = job_of(h, tid)
     assert (job["state"], job["error_code"], job["provider_job_id"]) == ("queued", "bad_result", None)
+    assert texts(h, job["asset_id"]) == []
+
+
+@pytest.mark.parametrize("result", [[page(1)], [page(1), page(2), page(3)]])
+def test_page_count_mismatch_is_bad_result(h: Harness, t: dict[str, Any], result: list[OcrPage]) -> None:
+    tid, clock = setup_job(h, t)
+    once(h, FakeProvider(result=result), clock)
+    job = job_of(h, tid)
+    assert (job["state"], job["error_code"]) == ("queued", "bad_result")
     assert texts(h, job["asset_id"]) == []
 
 
@@ -382,6 +400,8 @@ def test_retry_route_requeues_failed_job(h: Harness, t: dict[str, Any]) -> None:
     assert res.status == 200
     assert res.json == {"state": "queued", "errorCode": None}
     after = job_of(h, tid)
+    assert after["id"] != job["id"]
+    assert h.owner_rows("select 1 from ocr_jobs where id = %s", (job["id"],)) == []
     assert (after["state"], after["attempts"], after["lease_until"], after["provider_job_id"]) == (
         "queued",
         0,
@@ -391,6 +411,38 @@ def test_retry_route_requeues_failed_job(h: Harness, t: dict[str, Any]) -> None:
     assert (after["error_code"], after["finished_at"]) == (None, None)
     audit = h.owner_rows("select 1 from audit_log where action = 'test.ocr_retry' and entity_id = %s", (tid,))
     assert len(audit) == 1
+
+
+@pytest.mark.parametrize("outcome", ["success", "failure"])
+def test_stale_worker_after_retry_changes_nothing(h: Harness, t: dict[str, Any], outcome: str) -> None:
+    tid, clock = setup_job(h, t)
+    old = job_of(h, tid)
+
+    class RetriedMeanwhile(FakeProvider):
+        def pages(self, status: OcrStatus) -> list[OcrPage]:
+            h.owner_rows("update ocr_jobs set state = 'failed' where id = %s", (old["id"],))
+            assert h.call(t["a"], "POST", f"/api/tests/{tid}/ocr").status == 200
+            # The new claim reaches the same attempt number the stale worker holds.
+            with h.db.app_pool.connection() as conn:
+                claimed = conn.execute(
+                    "select * from app.ocr_claim(%s, %s)", (clock.at, clock.at + LEASE)
+                ).fetchall()
+            assert [c["attempts"] for c in claimed] == [1]
+            h.owner_rows("update ocr_jobs set provider_job_id = 'new-claim' where state = 'running'")
+            if outcome == "failure":
+                raise OcrError("bad_result")
+            return super().pages(status)
+
+    assert once(h, RetriedMeanwhile(), clock) is True
+    current = job_of(h, tid)
+    assert current["id"] != old["id"]
+    assert (current["state"], current["attempts"], current["error_code"], current["provider_job_id"]) == (
+        "running",
+        1,
+        None,
+        "new-claim",
+    )
+    assert texts(h, old["asset_id"]) == []
 
 
 @pytest.mark.parametrize("state", ["queued", "running", "done"])
