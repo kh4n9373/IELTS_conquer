@@ -102,7 +102,11 @@ create table keys.answer_key_versions (
   approved_by uuid references users (id),
   unique (test_id, version),
   unique (id, teacher_id),
-  foreign key (test_id, teacher_id) references tests (id, teacher_id) on delete cascade
+  -- Only the owning teacher approves, and approval is always a pair.
+  check (approved_by is null or approved_by = teacher_id),
+  check ((approved_at is null) = (approved_by is null)),
+  -- Restrict: deleting a test must never silently erase its keys.
+  foreign key (test_id, teacher_id) references tests (id, teacher_id) on delete restrict
 );
 
 create table keys.answer_key_items (
@@ -116,9 +120,22 @@ create table keys.answer_key_items (
   source_bbox jsonb,
   reviewed_at timestamptz,
   reviewed_by uuid references users (id),
+  check (reviewed_by is null or reviewed_by = teacher_id),
+  check ((reviewed_at is null) = (reviewed_by is null)),
   primary key (version_id, question_number),
   foreign key (version_id, teacher_id) references keys.answer_key_versions (id, teacher_id) on delete cascade
 );
+
+create function app.reject_approved_key_delete() returns trigger language plpgsql as $$
+begin
+  if old.approved_at is not null then
+    raise exception 'approved answer key versions are immutable';
+  end if;
+  return old;
+end $$;
+create trigger answer_key_versions_keep_approved before delete on keys.answer_key_versions
+  for each row execute function app.reject_approved_key_delete();
+revoke execute on function app.reject_approved_key_delete() from public;
 
 grant select, insert, update, delete on
   tests, test_assets, sections, questions, page_texts, ocr_jobs,

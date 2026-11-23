@@ -255,3 +255,52 @@ def test_ocr_finish_touches_only_given_job_and_validates_state(db: TestDb, w: Wo
         conn.execute("select app.ocr_finish(%s, 'running', null, %s)", (two, now))
     with db.app_pool.connection() as conn:  # unknown job is a safe no-op
         conn.execute("select app.ocr_finish(gen_random_uuid(), 'done', null, %s)", (now,))
+
+
+def _version(tx: Any, w: World, number: int, approved: bool = False) -> UUID:
+    row = tx.execute(
+        """insert into keys.answer_key_versions (test_id, teacher_id, version, approved_at, approved_by)
+           values (%s, %s, %s, %s, %s) returning id""",
+        (w.test_a, w.a.user_id, number, "2026-11-22" if approved else None,
+         w.a.user_id if approved else None),
+    ).fetchone()
+    return row["id"]  # type: ignore[no-any-return]
+
+
+@pytest.mark.parametrize("column", ["approved", "reviewed"])
+@pytest.mark.parametrize("who", ["other_teacher", "student", "unpaired"])
+def test_approval_and_review_provenance_checks(db: TestDb, w: World, column: str, who: str) -> None:
+    by = {"other_teacher": w.b.user_id, "student": w.student.user_id, "unpaired": w.a.user_id}[who]
+    at = None if who == "unpaired" and column == "approved" else "2026-11-22"
+    if column == "approved":
+        sql = (
+            "insert into keys.answer_key_versions (test_id, teacher_id, version, approved_at, approved_by)"
+            " values (%s, %s, 50, %s, %s)"
+        )
+        args: tuple[Any, ...] = (w.test_a, w.a.user_id, at, by)
+        if who == "unpaired":
+            args = (w.test_a, w.a.user_id, None, by)
+    else:
+        sql = (
+            "insert into keys.answer_key_items"
+            " (version_id, teacher_id, question_number, origin, reviewed_at, reviewed_by)"
+            " values (%s, %s, 50, 'manual', %s, %s)"
+        )
+        args = (w.version_a, w.a.user_id, None if who == "unpaired" else at, by)
+    with pytest.raises(psycopg.errors.CheckViolation), with_identity(db.app_pool, w.a) as tx:
+        tx.execute(sql.encode(), args)
+
+
+def test_approved_key_version_cannot_be_deleted(db: TestDb, w: World) -> None:
+    with with_identity(db.app_pool, w.a) as tx:
+        approved = _version(tx, w, 60, approved=True)
+    with pytest.raises(psycopg.Error, match="immutable"), with_identity(db.app_pool, w.a) as tx:
+        tx.execute("delete from keys.answer_key_versions where id = %s", (approved,))
+    with with_identity(db.app_pool, w.a) as tx:  # an unapproved draft version can still go
+        draft = _version(tx, w, 61)
+        assert tx.execute("delete from keys.answer_key_versions where id = %s", (draft,)).rowcount == 1
+
+
+def test_deleting_test_with_key_versions_is_restricted(db: TestDb, w: World) -> None:
+    with pytest.raises(psycopg.errors.ForeignKeyViolation), with_identity(db.app_pool, w.a) as tx:
+        tx.execute("delete from tests where id = %s", (w.test_a,))
