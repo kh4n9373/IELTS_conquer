@@ -9,6 +9,7 @@ from npa_api.app import access_table
 
 # Every route must appear here. The second value is the status Teacher B must get on
 # Teacher A's resource; None means the route has no tenant-owned path resource.
+NEW_TEST = {"sourceType": "self_authored", "testType": "course", "durationMinutes": 60}
 MATRIX: dict[str, tuple[Any, int | None]] = {
     "POST /api/auth/login": (None, None),
     "POST /api/auth/logout": (None, None),
@@ -33,7 +34,7 @@ MATRIX: dict[str, tuple[Any, int | None]] = {
     "GET /api/consents": (None, None),
     "POST /api/consents": ({"purpose": "ai_processing", "granted": True}, None),
     "GET /api/tests": (None, None),
-    "POST /api/tests": ({"title": "Matrix", "sourceType": "self_authored"}, None),
+    "POST /api/tests": ({"title": "Matrix", **NEW_TEST}, None),
     "GET /api/tests/{id}": (None, 404),
     "PATCH /api/tests/{id}": ({"title": "Hacked"}, 404),
     "PUT /api/tests/{id}/structure": (
@@ -73,7 +74,7 @@ def w(h: Harness) -> World:
     h.create_user("b@test.local", "teacher")
     admin, teacher, teacher_b = h.login("admin@test.local"), h.login("a@test.local"), h.login("b@test.local")
     class_id = h.call(teacher, "POST", "/api/classes", {"name": "A"}).json["id"]
-    test_id = h.call(teacher, "POST", "/api/tests", {"title": "T", "sourceType": "self_authored"}).json["id"]
+    test_id = h.call(teacher, "POST", "/api/tests", {"title": "T", **NEW_TEST}).json["id"]
     invite = h.call(teacher, "POST", f"/api/classes/{class_id}/invites", {"expiresInDays": 7}).json
     student = h.call(
         None,

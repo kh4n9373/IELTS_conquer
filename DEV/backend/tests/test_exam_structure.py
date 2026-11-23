@@ -17,7 +17,8 @@ def t(h: Harness) -> dict[str, str]:
 
 
 def make(h: Harness, cookie: str, **extra: Any) -> str:
-    body = {"title": "Test", "sourceType": "self_authored", **extra}
+    body = {"title": "Test", "sourceType": "self_authored"}
+    body |= {"testType": "ielts_standard", "durationMinutes": 60} | extra
     res = h.call(cookie, "POST", "/api/tests", body)
     assert res.status == 201
     return str(res.json["id"])
@@ -149,3 +150,11 @@ def test_readiness_pure_answer_states() -> None:
     ]
     assert readiness(test, assets, sections, questions, items) == ["missing_answer", "unreviewed_answer"]
     assert readiness(test, assets, sections, questions, []) == ["missing_answer"]
+
+
+@pytest.mark.parametrize("missing", ["sourceType", "testType", "durationMinutes"])
+def test_create_requires_test_type_and_duration(h: Harness, t: dict[str, str], missing: str) -> None:
+    body = {"title": "T", "sourceType": "self_authored", "testType": "course", "durationMinutes": 90}
+    del body[missing]
+    res = h.call(t["a"], "POST", "/api/tests", body)
+    assert (res.status, res.json) == (400, {"error": "invalid_input"})

@@ -35,8 +35,8 @@ PATCH_COLUMNS_REVERSE = {column: name for name, column in PATCH_COLUMNS.items()}
 class CreateTestBody(Body):
     title: NameField
     sourceType: SourceType  # noqa: N815
-    testType: TestType = "ielts_standard"  # noqa: N815
-    durationMinutes: Minutes = 60  # noqa: N815
+    testType: TestType  # noqa: N815
+    durationMinutes: Minutes  # noqa: N815
 
 
 class PatchTestBody(Body):
