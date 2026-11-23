@@ -129,7 +129,8 @@ def test_no_result_data_before_release(h: Harness, teacher: str, course_test: st
     attempt = s.do(s.students[0], aid, (1, "my-guess"))
     res = s.result(s.students[0].cookie, attempt)
     assert res.status == 200
-    assert res.json == {"released": False, "status": "submitted", "expectedAt": res.json["expectedAt"]}
+    assert set(res.json) == {"released", "status", "expectedAt", "testTitle", "submittedAt"}
+    assert res.json["released"] is False and res.json["submittedAt"] is not None
     assert res.json["expectedAt"] == "2026-11-23T04:00:00+00:00"
     with h.later(hours=2, minutes=30):
         others = [

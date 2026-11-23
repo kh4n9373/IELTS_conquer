@@ -307,7 +307,7 @@ function Room({ attemptId, room, tokenRef, clockRef, queue, restored }: RoomProp
             {formatRemaining(left)}
           </span>
           <button type="button" className="xb red" disabled={readOnly} onClick={() => setConfirming(true)}>
-            {t.exam.submit}
+            {phone ? t.exam.submitShort : t.exam.submit}
           </button>
         </span>
       </header>
@@ -359,6 +359,7 @@ function Room({ attemptId, room, tokenRef, clockRef, queue, restored }: RoomProp
           questions={shownQuestions}
           answers={answers}
           current={current}
+          phone={phone}
           locked={readOnly}
           onPick={pick}
           onEdit={edit}
@@ -373,11 +374,13 @@ function Room({ attemptId, room, tokenRef, clockRef, queue, restored }: RoomProp
         <div className="exam-veil">
           <div role="alertdialog" aria-modal="true" aria-label={t.exam.confirmLabel} className="exam-dialog">
             <h2>{t.exam.confirmTitle}</h2>
-            <div className="exam-counts">
-              <span><strong>{answeredCount}</strong>{t.exam.answered}</span>
-              <span><strong>{room.questions.length - answeredCount}</strong>{t.exam.blankLeft}</span>
-              <span><strong>{markedCount}</strong>{t.exam.forReview}</span>
-            </div>
+            {!phone && (
+              <div className="exam-counts">
+                <span><strong>{answeredCount}</strong>{t.exam.answered}</span>
+                <span><strong>{room.questions.length - answeredCount}</strong>{t.exam.blankLeft}</span>
+                <span><strong>{markedCount}</strong>{t.exam.forReview}</span>
+              </div>
+            )}
             <p>{phone ? t.exam.confirmPhone(answeredCount, room.questions.length) : t.exam.confirmWarn}</p>
             {submitError && <p className="alert" role="alert"><span>{submitError}</span></p>}
             <div className="exam-actions">

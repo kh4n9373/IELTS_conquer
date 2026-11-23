@@ -83,11 +83,12 @@ export type ExamRoom = {
 export type AnswerItem = { number: number; value: string; markedForReview: boolean; seq: number };
 export type SaveResult = { accepted: { number: number; seq: number }[]; late: number[]; serverNow: string };
 
-export type ResultPending = { released: false; status: AttemptStatus; expectedAt: string };
+export type ResultPending = { released: false; status: AttemptStatus; expectedAt: string; testTitle: string; submittedAt: string | null };
 export type ResultReleased = {
   released: true;
   status: AttemptStatus;
   attemptNumber: number;
+  maxAttempts: number;
   testTitle: string;
   /** ISO time the attempt was handed in. */
   submittedAt: string;

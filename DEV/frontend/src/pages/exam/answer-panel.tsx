@@ -11,6 +11,8 @@ type Props = {
   questions: ExamRoom['questions'];
   answers: Answers;
   current: number;
+  /** On a phone only the current question is shown, with the grid to move around. */
+  phone: boolean;
   locked: boolean;
   onPick: (number: number) => void;
   onEdit: (number: number, value: string) => void;
@@ -18,7 +20,7 @@ type Props = {
 };
 
 /** The 40-question grid and one answer row per question. Typing is local state: nothing refetched replaces it. */
-export function AnswerPanel({ questions, answers, current, locked, onPick, onEdit, onMark }: Props) {
+export function AnswerPanel({ questions, answers, current, phone, locked, onPick, onEdit, onMark }: Props) {
   const { t } = useI18n();
   return (
     <aside className="exam-sheet" aria-label={t.exam.sheet}>
@@ -46,8 +48,9 @@ export function AnswerPanel({ questions, answers, current, locked, onPick, onEdi
         <span className="mark">{t.exam.review}</span>
       </div>
       <div className="exam-rows">
-        {questions.map(({ number, wordLimit }) => {
+        {questions.filter((q) => !phone || q.number === current).map(({ number, wordLimit }) => {
           const a = answers[number];
+          const flag = phone ? (a?.marked ? t.exam.unmarkReview : t.exam.markReview) : t.exam.review;
           return (
             <div className="exam-row" key={number}>
               <label htmlFor={`exam-q${number}`}>{`${t.exam.q} ${number}`}</label>
@@ -69,11 +72,11 @@ export function AnswerPanel({ questions, answers, current, locked, onPick, onEdi
                 type="button"
                 className={`xb exam-flag${a?.marked ? ' is-on' : ''}`}
                 aria-pressed={a?.marked ?? false}
-                aria-label={`${t.exam.review} ${t.exam.q} ${number}`}
+                aria-label={phone ? flag : `${t.exam.review} ${t.exam.q} ${number}`}
                 disabled={locked}
                 onClick={() => onMark(number)}
               >
-                {t.exam.review}
+                {flag}
               </button>
             </div>
           );

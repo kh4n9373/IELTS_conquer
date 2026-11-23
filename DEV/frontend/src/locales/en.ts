@@ -350,6 +350,8 @@ export const en: Copy = {
     unsentBlock: (n: number) => `${n} answers are not sent yet. Reconnect, then submit again.`,
     prev: 'Previous',
     next: 'Next',
+    markReview: 'Mark for review',
+    unmarkReview: 'Remove review mark',
     cell: (n: number, answered: boolean, marked: boolean) =>
       `Question ${n}, ${answered ? 'answered' : 'blank'}${marked ? ', for review' : ''}`,
     loadFailed: 'Could not open the exam room. Check your connection and try again.',
@@ -357,9 +359,10 @@ export const en: Copy = {
   },
   result: {
     title: 'Results',
-    attempt: (n: number) => `Attempt ${n}`,
+    attempt: (n: number, max: number) => `Attempt ${n}/${max}`,
     submittedAt: (when: string) => `Submitted ${when}`,
     trialLabel: 'Trial',
+    submittedLine: (title: string, when: string) => `${title}, submitted at ${when}.`,
     submittedTitle: 'Submitted',
     expected: (when: string) => `Results expected: ${when}`,
     releaseNote: 'Your teacher releases results when the group has finished or the deadline passes.',

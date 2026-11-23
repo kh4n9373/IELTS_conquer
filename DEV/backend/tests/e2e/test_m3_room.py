@@ -168,6 +168,7 @@ def test_s13_toggle_keeps_typing_and_page(seeded: Browser) -> None:
     page.get_by_role("button", name="Trang sau").click()
     expect(page.get_by_text("Trang 2 / 15")).to_be_visible()
     page.get_by_role("button", name="Câu hỏi", exact=True).click()
+    page.get_by_role("button", name=re.compile(r"^Câu 3,")).click()
     box = field(page, 3)
     box.click()
     box.press_sequentially("half typed")  # no blur, no change event
@@ -176,6 +177,14 @@ def test_s13_toggle_keeps_typing_and_page(seeded: Browser) -> None:
     assert page.evaluate("document.querySelector('canvas').width > 0")
     page.get_by_role("button", name="Câu hỏi", exact=True).click()
     expect(field(page, 3)).to_have_value("half typed")
+    # One question at a time, with the review toggle named for what it does next.
+    expect(field(page, 4)).to_have_count(0)
+    page.get_by_role("button", name="Đánh dấu xem lại", exact=True).click()
+    page.get_by_role("button", name="Bỏ đánh dấu xem lại", exact=True).click()
+    page.get_by_role("button", name="Câu sau").click()
+    expect(field(page, 4)).to_be_visible()
+    expect(field(page, 3)).to_have_count(0)
+    expect(page.get_by_role("button", name="Nộp", exact=True)).to_be_visible()
     context.close()
 
 

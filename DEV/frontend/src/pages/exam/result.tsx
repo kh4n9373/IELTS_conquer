@@ -30,6 +30,7 @@ export function ResultPage() {
         <PageHead title={t.result.title} />
         <section className="res-pending">
           <h2>{t.result.submittedTitle}</h2>
+          <p>{data.submittedAt ? t.result.submittedLine(data.testTitle, dateTime(data.submittedAt)) : data.testTitle}</p>
           <div className="res-expect">
             <strong>{t.result.expected(dateTime(data.expectedAt))}</strong>
             <span>{t.result.releaseNote}</span>
@@ -60,7 +61,7 @@ function Released({ data }: { data: ResultReleased | ResultPreview }) {
       <PageHead
         eyebrow={t.result.title}
         title={data.testTitle}
-        lede={`${t.result.attempt(data.attemptNumber)} · ${t.result.submittedAt(dateTime(data.submittedAt))}${data.isTrial ? ` · ${t.result.trialLabel}` : ''}`}
+        lede={`${t.result.attempt(data.attemptNumber, data.maxAttempts)} · ${t.result.submittedAt(dateTime(data.submittedAt))}${data.isTrial ? ` · ${t.result.trialLabel}` : ''}`}
       />
       <div className={`res-stats${hasBand ? ' has-band' : ''}`}>
         <div className="res-stat"><strong>{`${data.correct}/${data.total}`}</strong><span>{t.result.correct}</span></div>

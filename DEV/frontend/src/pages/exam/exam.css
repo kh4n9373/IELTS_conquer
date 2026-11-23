@@ -90,4 +90,8 @@
   .exam-dialog { padding: 24px 16px; align-self: end; }
   .exam-veil { padding: 0; place-items: end stretch; }
   .exam-dialog { width: 100%; }
+  .exam-actions { flex-direction: column-reverse; }
+  .exam-row { flex-direction: column; align-items: stretch; gap: 12px; }
+  .exam-row label { width: auto; font-size: 1.125rem; }
+  .exam .exam-flag { width: auto; min-height: 44px; padding: 0 18px; font-size: 0.875rem; }
 }

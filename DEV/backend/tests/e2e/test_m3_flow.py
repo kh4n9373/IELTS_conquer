@@ -171,7 +171,7 @@ def test_group_result_waits_for_everyone(browser: Browser) -> None:
     submit(first, attempt, correct=4, wrong=1)
 
     pending = api(first, "GET", f"/api/attempts/{attempt}/result")
-    assert set(pending) == {"released", "status", "expectedAt"}
+    assert set(pending) == {"released", "status", "expectedAt", "testTitle", "submittedAt"}
     assert pending["released"] is False
     assert pending["status"] == "submitted"
     first.goto(f"{WEB_URL}/results/{attempt}")

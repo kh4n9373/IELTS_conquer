@@ -57,7 +57,10 @@ def pending(row: dict[str, Any], *, student: bool) -> dict[str, Any]:
         status = "submitted"
     expected = g["releaseAt"] if g["releasePolicy"] == "scheduled" else g["dueAt"]
     at = datetime.fromisoformat(expected).astimezone(UTC).isoformat()
-    return {"released": False, "status": status, "expectedAt": at}
+    done = row["finalizedAt"]
+    submitted = datetime.fromisoformat(done).astimezone(UTC).isoformat() if done else None
+    return {"released": False, "status": status, "expectedAt": at, "testTitle": row["testTitle"],
+            "submittedAt": submitted}
 
 
 def build_result(row: dict[str, Any], *, released: bool) -> dict[str, Any]:
@@ -68,6 +71,7 @@ def build_result(row: dict[str, Any], *, released: bool) -> dict[str, Any]:
         "released": released,
         "status": row["status"],
         "attemptNumber": row["number"],
+        "maxAttempts": row["assignment"]["maxAttempts"],
         "testTitle": row["testTitle"],
         "submittedAt": datetime.fromisoformat(row["finalizedAt"]).astimezone(UTC).isoformat(),
         "correct": run["correct"],

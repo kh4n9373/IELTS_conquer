@@ -351,6 +351,8 @@ export const vi = {
     unsentBlock: (n: number) => `Còn ${n} câu chưa gửi được. Chờ có mạng rồi nộp lại.`,
     prev: 'Câu trước',
     next: 'Câu sau',
+    markReview: 'Đánh dấu xem lại',
+    unmarkReview: 'Bỏ đánh dấu xem lại',
     cell: (n: number, answered: boolean, marked: boolean) =>
       `Câu ${n}, ${answered ? 'đã trả lời' : 'chưa trả lời'}${marked ? ', xem lại' : ''}`,
     loadFailed: 'Không mở được phòng thi. Kiểm tra mạng rồi thử lại.',
@@ -358,9 +360,10 @@ export const vi = {
   },
   result: {
     title: 'Kết quả',
-    attempt: (n: number) => `Lần làm ${n}`,
+    attempt: (n: number, max: number) => `Lần làm ${n}/${max}`,
     submittedAt: (when: string) => `Nộp lúc ${when}`,
     trialLabel: 'Thi thử',
+    submittedLine: (title: string, when: string) => `${title}, nộp lúc ${when}.`,
     submittedTitle: 'Đã nộp bài',
     expected: (when: string) => `Dự kiến có kết quả: ${when}`,
     releaseNote: 'Giáo viên công bố khi cả nhóm đã nộp hoặc khi hết hạn.',
