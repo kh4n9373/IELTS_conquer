@@ -1,36 +1,26 @@
 import os
 import re
+import secrets
 import signal
-import socket
 import subprocess
 import sys
-import time
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 from playwright.sync_api import Browser, Page, expect, sync_playwright
+from ports import pick_free_port, wait_for_owned_server, wait_until_port_free
 
-API_PORT = 3100
-WEB_PORT = 5199
+API_PORT = pick_free_port()
+WEB_PORT = pick_free_port()
+while WEB_PORT == API_PORT:
+    WEB_PORT = pick_free_port()
 WEB_URL = f"http://127.0.0.1:{WEB_PORT}"
+E2E_NONCE = secrets.token_hex(16)
 PASSWORD = "teacher-password-123"
 HERE = Path(__file__).parent
 DEV_ROOT = HERE.parents[2]
 MAIL_FILE = HERE / ".e2e-mail.log"
-
-
-def wait_for_port(port: int, process: subprocess.Popen[bytes], timeout: float = 60) -> None:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if process.poll() is not None:
-            raise RuntimeError(f"Server for port {port} exited with {process.returncode}")
-        with socket.socket() as s:
-            s.settimeout(0.5)
-            if s.connect_ex(("127.0.0.1", port)) == 0:
-                return
-        time.sleep(0.2)
-    raise TimeoutError(f"Nothing listening on port {port}")
 
 
 def stop(process: subprocess.Popen[bytes]) -> None:
@@ -45,9 +35,18 @@ def stop(process: subprocess.Popen[bytes]) -> None:
 
 @pytest.fixture(scope="module")
 def servers() -> Iterator[None]:
+    for port in (API_PORT, WEB_PORT):
+        wait_until_port_free(port)
+    base_env = {k: v for k, v in os.environ.items() if k != "DATABASE_URL"}
     api = subprocess.Popen(
         [sys.executable, str(HERE / "server.py")],
-        env={**os.environ, "PORT": str(API_PORT), "PUBLIC_URL": WEB_URL, "E2E_MAIL_FILE": str(MAIL_FILE)},
+        env={
+            **base_env,
+            "PORT": str(API_PORT),
+            "PUBLIC_URL": WEB_URL,
+            "E2E_MAIL_FILE": str(MAIL_FILE),
+            "E2E_NONCE": E2E_NONCE,
+        },
         start_new_session=True,
     )
     web = subprocess.Popen(
@@ -65,13 +64,13 @@ def servers() -> Iterator[None]:
             "--strictPort",
         ],
         cwd=DEV_ROOT,
-        env={**os.environ, "API_URL": f"http://127.0.0.1:{API_PORT}"},
+        env={**base_env, "API_URL": f"http://127.0.0.1:{API_PORT}"},
         start_new_session=True,
         stdout=subprocess.DEVNULL,
     )
     try:
-        wait_for_port(API_PORT, api)
-        wait_for_port(WEB_PORT, web)
+        wait_for_owned_server(f"http://127.0.0.1:{API_PORT}/api/e2e/whoami", E2E_NONCE, api)
+        wait_for_owned_server(f"{WEB_URL}/api/e2e/whoami", E2E_NONCE, web)
         yield
     finally:
         stop(web)

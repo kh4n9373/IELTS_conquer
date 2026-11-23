@@ -55,6 +55,10 @@ try:
                 return Response(data, media_type="application/pdf")
         return Response(status_code=404)
 
+    @app.get("/api/e2e/whoami")
+    def e2e_whoami() -> dict[str, str]:
+        return {"nonce": os.environ["E2E_NONCE"]}
+
     @app.post("/api/e2e/ocr-fail")
     async def e2e_ocr_fail(request: Request) -> dict[str, Any]:
         """Stands in for a failed provider call, so no worker and no OCR token are needed."""
