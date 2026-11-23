@@ -1,6 +1,8 @@
+import gzip
 import json
 import logging
 import re
+import tracemalloc
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
@@ -15,6 +17,11 @@ TOKEN = "unit-test-token-value"  # noqa: S105
 RESULT_URL = "https://results.example.test/r.jsonl?signature=sig-value"
 FIXTURE = Path(__file__).parent / "fixtures" / "paddle_result.jsonl"
 Handler = Callable[[httpx.Request], httpx.Response]
+
+
+def served(body: bytes, headers: dict[str, str] | None = None) -> httpx.Response:
+    """A streamed response, as a real download is: bytes content would arrive already read."""
+    return httpx.Response(200, headers=headers, content=iter([body]))
 
 
 def provider(handler: Handler) -> PaddleOcrProvider:
@@ -167,6 +174,14 @@ def test_status_rejects_unsafe_job_id_without_calling() -> None:
         "https://0x7f.0.0.1/r.jsonl",
         "https://user:pw@results.example.test/r.jsonl",
         "https:///r.jsonl",
+        "https://127\u30020\u30020\u30021/x",
+        "https://127\uff0e0\uff0e0\uff0e1/x",
+        "https://127\uff610\uff610\uff611/x",
+        "https://169\u3002254\u3002169\u3002254/x",
+        "https://localhost\u3002/x",
+        "https://api\u3002localhost/x",
+        "https://127%2e0%2e0%2e1/x",
+        "https://[bad/x",
     ],
 )
 def test_result_url_must_be_https_and_not_redirect(url: str) -> None:
@@ -175,7 +190,7 @@ def test_result_url_must_be_https_and_not_redirect(url: str) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1
-        return httpx.Response(200, content=FIXTURE.read_bytes())
+        return served(FIXTURE.read_bytes())
 
     with pytest.raises(OcrError) as caught:
         provider(handler).pages(done(url))
@@ -202,7 +217,7 @@ def test_result_download_sends_no_authorization() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
-        return httpx.Response(200, content=FIXTURE.read_bytes())
+        return served(FIXTURE.read_bytes())
 
     provider(handler).pages(done())
     assert "authorization" not in seen[0].headers
@@ -243,7 +258,7 @@ def test_declared_oversize_is_refused_before_reading() -> None:
 
 
 def test_parses_the_sanitized_live_fixture() -> None:
-    pages = provider(lambda _: httpx.Response(200, content=FIXTURE.read_bytes())).pages(done())
+    pages = provider(lambda _: served(FIXTURE.read_bytes())).pages(done())
     assert [p.page for p in pages] == [1]
     assert pages[0].text == "Zorvian lanterns drift above the"
     assert pages[0].lines[0].bbox == (15.0, 178.0, 397.0, 210.0)
@@ -264,7 +279,7 @@ def test_pages_number_across_jsonl_lines() -> None:
         return json.dumps({"result": {"layoutParsingResults": results}, "errorCode": 0})
 
     body = f"{row('one', 'two')}\n\n{row('three')}\n".encode()
-    pages = provider(lambda _: httpx.Response(200, content=body)).pages(done())
+    pages = provider(lambda _: served(body)).pages(done())
     assert [(p.page, p.text) for p in pages] == [(1, "one"), (2, "two"), (3, "three")]
 
 
@@ -283,7 +298,7 @@ def test_pages_number_across_jsonl_lines() -> None:
 )
 def test_malformed_results_are_bad_result(body: bytes) -> None:
     with pytest.raises(OcrError) as caught:
-        provider(lambda _: httpx.Response(200, content=body)).pages(done())
+        provider(lambda _: served(body)).pages(done())
     assert caught.value.code == "bad_result"
 
 
@@ -300,12 +315,52 @@ def test_unicode_line_separators_inside_text_do_not_split_records() -> None:
         "errorCode": 0,
     }
     body = json.dumps(row, ensure_ascii=False).encode()
-    pages = provider(lambda _: httpx.Response(200, content=body)).pages(done())
+    pages = provider(lambda _: served(body)).pages(done())
     assert pages[0].text == "before after"
 
 
 def test_deeply_nested_result_is_bad_result() -> None:
     body = b"[" * 200_000
     with pytest.raises(OcrError) as caught:
-        provider(lambda _: httpx.Response(200, content=body)).pages(done())
+        provider(lambda _: served(body)).pages(done())
     assert caught.value.code == "bad_result"
+
+
+def test_result_is_requested_at_the_normalized_host() -> None:
+    seen: list[httpx.URL] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url)
+        return served(FIXTURE.read_bytes())
+
+    provider(handler).pages(done("https://results\u3002example\u3002test/r.jsonl?signature=sig-value"))
+    assert seen[0].host == "results.example.test"
+    assert seen[0].query == b"signature=sig-value"
+
+
+@pytest.mark.parametrize("encoding", ["gzip", "gzip, gzip", "deflate", "identity, gzip", "br"])
+def test_compressed_result_is_refused(encoding: str) -> None:
+    body = gzip.compress(FIXTURE.read_bytes())
+    with pytest.raises(OcrError) as caught:
+        provider(lambda _: served(body, {"content-encoding": encoding})).pages(done())
+    assert caught.value.code == "bad_result"
+
+
+def test_identity_encoding_is_accepted() -> None:
+    body = FIXTURE.read_bytes()
+    pages = provider(lambda _: served(body, {"content-encoding": "identity"})).pages(done())
+    assert [p.page for p in pages] == [1]
+
+
+def test_nested_gzip_does_not_inflate_in_memory() -> None:
+    bomb = gzip.compress(gzip.compress(b"x" * (MAX_RESULT_BYTES + 10 * 1024 * 1024)))
+    assert len(bomb) < 10_000
+    tracemalloc.start()
+    try:
+        with pytest.raises(OcrError) as caught:
+            provider(lambda _: served(bomb, {"content-encoding": "gzip, gzip"})).pages(done())
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert caught.value.code == "bad_result"
+    assert peak < 5 * 1024 * 1024

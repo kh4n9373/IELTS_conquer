@@ -1,4 +1,7 @@
 import logging
+import os
+import signal
+import threading
 from collections.abc import Iterator
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -486,3 +489,53 @@ def test_worker_main_names_missing_setting(
         worker.main()
     assert "BAIDU_OCR_ACCESS_TOKEN" in str(caught.value)
     assert "configured-value" not in str(caught.value) + capsys.readouterr().err
+
+
+def test_worker_loop_processes_a_job_and_sigterm_stops_it_between_jobs(h: Harness, t: dict[str, Any]) -> None:
+    first, clock = setup_job(h, t)
+    second = new_test(h, t)
+    upload(h, t, second)
+
+    class Terminated(FakeProvider):
+        def pages(self, status: OcrStatus) -> list[OcrPage]:
+            os.kill(os.getpid(), signal.SIGTERM)  # arrives while the first job is in progress
+            return super().pages(status)
+
+    provider = Terminated()
+    stop = threading.Event()
+    previous = {name: signal.getsignal(name) for name in (signal.SIGTERM, signal.SIGINT)}
+    try:
+        worker.install_stop_handlers(stop)
+        worker.run_loop(h.db.app_pool, h.store, provider, stop, clock, sleep=clock.sleep)
+    finally:
+        for name, handler in previous.items():
+            signal.signal(name, handler)
+    assert stop.is_set()
+    assert len(provider.submitted) == 1
+    assert sorted(job_of(h, tid)["state"] for tid in (first, second)) == ["done", "queued"]
+
+
+def test_worker_loop_does_not_claim_once_stopped(h: Harness, t: dict[str, Any]) -> None:
+    tid, clock = setup_job(h, t)
+    stop = threading.Event()
+    stop.set()
+    provider = FakeProvider()
+    worker.run_loop(h.db.app_pool, h.store, provider, stop, clock, sleep=clock.sleep)
+    assert provider.submitted == []
+    assert job_of(h, tid)["attempts"] == 0
+
+
+def test_worker_loop_survives_an_error_and_logs_only_its_type(
+    h: Harness, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    stop = threading.Event()
+
+    def boom(*_args: Any, **_kwargs: Any) -> bool:
+        stop.set()
+        raise RuntimeError("https://r.example.test/x?signature=sig-value")
+
+    monkeypatch.setattr(worker, "run_once", boom)
+    with caplog.at_level(logging.ERROR, logger="npa.ocr"):
+        worker.run_loop(h.db.app_pool, h.store, FakeProvider(), stop, Clock(h.now))
+    assert "RuntimeError" in caplog.text
+    assert "sig-value" not in caplog.text

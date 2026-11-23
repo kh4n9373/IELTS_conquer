@@ -207,6 +207,33 @@ def quiet_http_logs() -> None:
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
+def install_stop_handlers(stop: threading.Event) -> None:
+    def request_stop(_signal: int, _frame: FrameType | None) -> None:
+        stop.set()
+
+    signal.signal(signal.SIGTERM, request_stop)
+    signal.signal(signal.SIGINT, request_stop)
+
+
+def run_loop(
+    pool: Pool,
+    store: FileStore,
+    provider: OcrProvider,
+    stop: threading.Event,
+    now: Clock,
+    sleep: Sleep = time.sleep,
+) -> None:
+    """Runs jobs until `stop` is set. A job in progress finishes first."""
+    while not stop.is_set():
+        try:
+            worked = run_once(pool, store, provider, now, sleep)
+        except Exception as err:
+            log.error("OCR worker loop error: %s", type(err).__name__)
+            worked = False
+        if not worked:
+            stop.wait(IDLE_SECONDS)
+
+
 def main() -> None:
     values = {name: os.environ.get(name, "") for name in REQUIRED}
     missing = [name for name, value in values.items() if not value]
@@ -215,12 +242,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO)
     quiet_http_logs()
     stop = threading.Event()
-
-    def request_stop(_signal: int, _frame: FrameType | None) -> None:
-        stop.set()
-
-    signal.signal(signal.SIGTERM, request_stop)
-    signal.signal(signal.SIGINT, request_stop)
+    install_stop_handlers(stop)
     store = create_store()
     if store is None:
         sys.exit("Storage settings are incomplete")
@@ -228,13 +250,6 @@ def main() -> None:
     try:
         with httpx.Client(follow_redirects=False) as client:
             provider = PaddleOcrProvider(values["BAIDU_OCR_ACCESS_TOKEN"], client)
-            while not stop.is_set():
-                try:
-                    worked = run_once(pool, store, provider, lambda: datetime.now(UTC))
-                except Exception as err:
-                    log.error("OCR worker loop error: %s", type(err).__name__)
-                    worked = False
-                if not worked:
-                    stop.wait(IDLE_SECONDS)
+            run_loop(pool, store, provider, stop, lambda: datetime.now(UTC))
     finally:
         pool.close()

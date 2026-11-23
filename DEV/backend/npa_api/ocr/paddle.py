@@ -7,7 +7,6 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any, NoReturn, cast
-from urllib.parse import urlsplit
 
 import httpx
 
@@ -20,6 +19,7 @@ DOWNLOAD_SECONDS = 120
 JOB_EXPIRED = 11002
 TIMEOUT = httpx.Timeout(connect=10, read=60, write=120, pool=10)
 JOB_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+HOSTNAME = re.compile(r"[a-z0-9._-]+")
 STATES: frozenset[str] = frozenset({"pending", "running", "done", "failed"})
 
 
@@ -28,16 +28,16 @@ def fail(code: ErrorCode) -> NoReturn:
     raise OcrError(code) from None
 
 
-def check_result_url(url: object) -> str:
+def check_result_url(url: object) -> httpx.URL:
+    """Checks the host httpx will connect to: IDNA turns Unicode dots into ASCII ones first."""
     if not isinstance(url, str):
         fail("bad_result")
     try:
-        parts = urlsplit(url)
-        host = (parts.hostname or "").rstrip(".").lower()
-        _ = parts.port
-    except ValueError:
+        parsed = httpx.URL(url)
+        host = parsed.raw_host.decode("ascii").strip("[]").rstrip(".").lower()
+    except (httpx.InvalidURL, ValueError):
         fail("bad_result")
-    if parts.scheme != "https" or not host or parts.username is not None or parts.password is not None:
+    if parsed.scheme != "https" or not host or parsed.userinfo:
         fail("bad_result")
     if host == "localhost" or host.endswith(".localhost"):
         fail("bad_result")
@@ -47,11 +47,13 @@ def check_result_url(url: object) -> str:
         pass
     else:
         fail("bad_result")
+    if not HOSTNAME.fullmatch(host):
+        fail("bad_result")
     # Numeric hosts such as 2130706433 or 0x7f.0.0.1 resolve to IP addresses in many resolvers.
     last = host.rsplit(".", 1)[-1]
     if last.isdigit() or last.startswith("0x"):
         fail("bad_result")
-    return url
+    return parsed
 
 
 def parse_bbox(value: object) -> tuple[float, float, float, float] | None:
@@ -186,10 +188,13 @@ class PaddleOcrProvider:
             ) as response:
                 if response.status_code != 200:
                     fail("provider_error")
+                # httpx would honor stacked encodings despite the request, so a small body could inflate.
+                if response.headers.get("content-encoding", "identity").strip().lower() != "identity":
+                    fail("bad_result")
                 declared = response.headers.get("content-length", "")
                 if declared.isdigit() and int(declared) > MAX_RESULT_BYTES:
                     fail("bad_result")
-                for chunk in response.iter_bytes(chunk_size=64 * 1024):
+                for chunk in response.iter_raw(chunk_size=64 * 1024):
                     body += chunk
                     if len(body) > MAX_RESULT_BYTES:
                         fail("bad_result")
