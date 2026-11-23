@@ -15,19 +15,53 @@ services:
       timeout: 3s
       retries: 10
 
-  # Private S3-compatible storage for uploaded PDFs. Start with: docker compose --profile storage up
+  # Private S3-compatible storage for uploaded PDFs. The upstream minio/minio images are no longer
+  # published, so this pins the last Bitnami build (unmaintained: development use only). Start with: docker compose --profile storage up
   minio:
     profiles: ["storage"]
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
-    command: server /data --console-address "127.0.0.1:9001"
+    image: bitnamilegacy/minio:2025.7.23
+    # Refuses to start without credentials: MinIO would otherwise fall back to its public defaults.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ -z "$$MINIO_ROOT_USER" ] || [ -z "$$MINIO_ROOT_PASSWORD" ]; then
+          echo "S3_ACCESS_KEY and S3_SECRET_KEY must be set for the storage profile" >&2
+          exit 1
+        fi
+        exec minio server /bitnami/minio/data
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY:-}
       MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-}
     ports:
-      - "127.0.0.1:9000:9000"
-      - "127.0.0.1:9001:9001"
+      - "127.0.0.1:${MINIO_PORT:-9000}:9000"
     volumes:
-      - minio-data:/data
+      - minio-data:/bitnami/minio/data
+
+  # One-shot: creates the private bucket (idempotent) and removes any anonymous access.
+  minio-init:
+    profiles: ["storage"]
+    image: bitnamilegacy/minio:2025.7.23
+    depends_on:
+      - minio
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ -z "$$S3_ACCESS_KEY" ] || [ -z "$$S3_SECRET_KEY" ] || [ -z "$$S3_BUCKET" ]; then
+          echo "S3_ACCESS_KEY, S3_SECRET_KEY and S3_BUCKET must be set" >&2
+          exit 1
+        fi
+        n=0
+        until mc alias set local http://minio:9000 "$$S3_ACCESS_KEY" "$$S3_SECRET_KEY" >/dev/null 2>&1; do
+          n=$$((n + 1))
+          [ "$$n" -lt 30 ] || { echo "minio not reachable" >&2; exit 1; }
+          sleep 1
+        done
+        mc mb --ignore-existing "local/$$S3_BUCKET" && mc anonymous set none "local/$$S3_BUCKET"
+    environment:
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+      S3_BUCKET: ${S3_BUCKET:-}
 
 volumes:
   db-data:

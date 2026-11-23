@@ -25,12 +25,20 @@ class MemoryFileStore:
         return f"https://files.test/signed/{hashlib.sha256(key.encode()).hexdigest()}?expires={seconds}"
 
 
-def make_pdf(pages: int = 1, text: str | None = "Hello reading passage", *, encrypted: bool = False) -> bytes:
+def make_pdf(
+    pages: int = 1,
+    text: str | None = "Hello reading passage",
+    *,
+    encrypted: bool = False,
+    declared: int | None = None,
+) -> bytes:
     """A small valid PDF. `text=None` gives pages with no text, like a scan."""
     objects: list[bytes] = []
     kids = " ".join(f"{4 + i * 2} 0 R" for i in range(pages))
     objects.append(b"<< /Type /Catalog /Pages 2 0 R >>")
-    objects.append(f"<< /Type /Pages /Kids [{kids}] /Count {pages} >>".encode())
+    objects.append(
+        f"<< /Type /Pages /Kids [{kids}] /Count {pages if declared is None else declared} >>".encode()
+    )
     objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
     for i in range(pages):
         contents = 5 + i * 2

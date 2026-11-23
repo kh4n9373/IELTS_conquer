@@ -3,7 +3,9 @@
 import hashlib
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
+import pypdf
 import pypdfium2 as pdfium
 import pypdfium2.raw as pdfium_c
 
@@ -32,6 +34,41 @@ def _digest(path: Path) -> str:
     return sha.hexdigest()
 
 
+MAX_NODES = 5000
+
+
+def _leaf_pages(path: Path) -> tuple[int, int | None]:
+    """Counts real leaf pages by walking /Kids (bounded, cycle-safe) and reads the root /Count."""
+    try:
+        reader = pypdf.PdfReader(str(path), strict=False)
+        trailer: Any = reader.trailer
+        root: Any = trailer["/Root"]["/Pages"]
+        declared = root.get("/Count")
+        leaves, seen, stack = 0, set(), [root.indirect_reference or root]
+        while stack:
+            ref = stack.pop()
+            marker = getattr(ref, "idnum", None)
+            if marker is not None:
+                if marker in seen:
+                    raise PdfRejected("corrupt_pdf")
+                seen.add(marker)
+            if len(seen) > MAX_NODES:
+                raise PdfRejected("corrupt_pdf")
+            node = ref.get_object()
+            kids = node.get("/Kids")
+            if kids is None or node.get("/Type") == "/Page":
+                leaves += 1
+                if leaves > MAX_PAGES:
+                    raise PdfRejected("too_many_pages")
+            else:
+                stack.extend(kids.get_object())
+    except PdfRejected:
+        raise
+    except Exception as err:
+        raise PdfRejected("corrupt_pdf") from err
+    return leaves, None if declared is None else int(declared)
+
+
 def inspect_pdf(path: Path) -> PdfInfo:
     with path.open("rb") as f:
         if f.read(len(MAGIC)) != MAGIC:
@@ -47,6 +84,9 @@ def inspect_pdf(path: Path) -> PdfInfo:
             raise PdfRejected("corrupt_pdf")
         if count > MAX_PAGES:
             raise PdfRejected("too_many_pages")
+        leaves, declared = _leaf_pages(path)
+        if leaves != count or (declared is not None and declared != leaves):
+            raise PdfRejected("corrupt_pdf")
         has_text = False
         try:
             for index in range(count):
@@ -56,7 +96,6 @@ def inspect_pdf(path: Path) -> PdfInfo:
                     try:
                         if textpage.get_text_range().strip():
                             has_text = True
-                            break
                     finally:
                         textpage.close()
                 finally:

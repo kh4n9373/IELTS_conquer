@@ -318,3 +318,35 @@ def test_readiness_pure_null_page_count_with_mapped_pages_is_out_of_range() -> N
     assert readiness(test, unknown, sections, questions, items) == ["page_out_of_range"]
     unmapped = [{"passage_pages": [], "question_pages": []}]
     assert readiness(test, unknown, unmapped, questions, items) == []
+
+
+@pytest.mark.parametrize(
+    ("real", "declared", "code"),
+    [
+        (1, 5, "corrupt_pdf"),
+        (1, 100, "corrupt_pdf"),
+        (150, 1, "too_many_pages"),
+        (150, 100, "too_many_pages"),
+        (3, 2, "corrupt_pdf"),
+    ],
+)
+def test_forged_page_count_is_rejected(tmp_path: Path, real: int, declared: int, code: str) -> None:
+    path = tmp_path / "forged.pdf"
+    path.write_bytes(make_pdf(real, declared=declared))
+    with pytest.raises(PdfRejected) as err:
+        inspect_pdf(path)
+    assert err.value.code == code
+
+
+def test_text_on_a_late_page_is_found_and_every_page_must_load(tmp_path: Path) -> None:
+    path = tmp_path / "ok.pdf"
+    path.write_bytes(make_pdf(4, declared=4))
+    assert inspect_pdf(path).page_count == 4
+
+
+def test_cyclic_page_tree_is_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "cycle.pdf"
+    data = make_pdf(1).replace(b"/Kids [4 0 R]", b"/Kids [2 0 R 4 0 R]")
+    path.write_bytes(data)
+    with pytest.raises(PdfRejected):
+        inspect_pdf(path)
