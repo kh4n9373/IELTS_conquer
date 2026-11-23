@@ -11,7 +11,7 @@ import { Brand, ErrorAlert, Icon, LangSwitch, PageLoader, type IconName } from '
 /** Only screens that exist today get a tab. Upcoming areas are listed on the student home. */
 const TABS: Record<Me['role'], [string, keyof Copy['nav'], IconName][]> = {
   admin: [['/admin', 'teachers', 'users']],
-  teacher: [['/classes', 'classes', 'book']],
+  teacher: [['/classes', 'classes', 'book'], ['/tests', 'tests', 'exam']],
   student: [['/home', 'home', 'book']],
 };
 

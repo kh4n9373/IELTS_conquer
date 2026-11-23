@@ -23,6 +23,14 @@ export const api = {
   get: <T>(url: string) => request<T>('GET', url),
   post: <T = void>(url: string, body?: unknown) => request<T>('POST', url, body),
   patch: <T = void>(url: string, body: unknown) => request<T>('PATCH', url, body),
+  put: <T = void>(url: string, body: unknown) => request<T>('PUT', url, body),
+  /** Sends a file as the raw request body, typed by the file itself. */
+  upload: async <T>(url: string, file: File): Promise<T> => {
+    const res = await fetch(url, { method: 'PUT', credentials: 'same-origin', headers: { 'content-type': file.type }, body: file });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new ApiError(res.status, data?.error ?? 'internal_error');
+    return data as T;
+  },
   delete: (url: string) => request<void>('DELETE', url),
 };
 

@@ -9,6 +9,12 @@ import { ForgotPage, LoginPage, ResetPage } from './pages/auth';
 import { ClassDetailPage, ClassesPage } from './pages/classes';
 import { JoinPage } from './pages/join';
 import { SettingsPage, StudentHomePage } from './pages/student';
+import { DetailsPage, EditorLayout, NewTestPage } from './pages/tests/editor';
+import { KeyPage } from './pages/tests/key';
+import { TestListPage } from './pages/tests/list';
+import { PreviewPage } from './pages/tests/preview';
+import { PublishPage } from './pages/tests/publish';
+import { StructurePage } from './pages/tests/structure';
 import { homeFor, useMe } from './app/session';
 import { RoleGate, Shell } from './app/shell';
 import { ErrorAlert, PageLoader } from './components/ui';
@@ -19,6 +25,7 @@ import './pages/landing/landing.css';
 import './pages/landing/authors.css';
 import './styles/theme.css';
 import './pages/landing/motion.css';
+import './pages/tests/tests.css';
 
 const LandingPage = lazy(() => import('./pages/landing/landing'));
 
@@ -60,6 +67,15 @@ const router = createBrowserRouter(
         <Route element={<RoleGate roles={['teacher']} />}>
           <Route path="/classes" element={<ClassesPage />} />
           <Route path="/classes/:id" element={<ClassDetailPage />} />
+          <Route path="/tests" element={<TestListPage />} />
+          <Route path="/tests/new" element={<NewTestPage />} />
+          <Route path="/tests/:id" element={<EditorLayout />}>
+            <Route index element={<DetailsPage />} />
+            <Route path="structure" element={<StructurePage />} />
+            <Route path="key" element={<KeyPage />} />
+            <Route path="publish" element={<PublishPage />} />
+            <Route path="preview" element={<PreviewPage />} />
+          </Route>
         </Route>
         <Route element={<RoleGate roles={['student']} />}>
           <Route path="/home" element={<StudentHomePage />} />

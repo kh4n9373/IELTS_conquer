@@ -1,0 +1,92 @@
+/* Teacher test authoring. Loaded last, so it can refine the shared controls. */
+.button-link.auto { width: auto; justify-content: center; gap: 12px; }
+.test-meta { display: block; font-family: var(--sans); font-size: 0.875rem; font-weight: 500; letter-spacing: 0; }
+.tag-bad { color: #fff; background: var(--mark); border-color: transparent; }
+
+/* Steps */
+.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 4px; }
+.steps a { display: flex; align-items: center; min-height: 48px; padding: 0 14px; color: var(--text); background: var(--paper-2); font-size: 0.875rem; font-weight: 800; text-decoration: none; }
+.steps a:hover { background: var(--hi); }
+.steps a.active { color: #fff; background: var(--mark); }
+
+/* Plain labels, selects and text areas share the field look */
+label.plain { display: grid; gap: 4px; min-width: 0; font-size: 0.8125rem; font-weight: 700; }
+label.plain input, select, textarea {
+  width: 100%; min-height: 44px; padding: 8px 10px; font: inherit; font-size: 0.9375rem; font-weight: 500; color: var(--text);
+  background: var(--sheet); border: 1px solid var(--line-strong); border-radius: 0;
+}
+textarea { resize: vertical; }
+label.plain input:focus-visible, select:focus-visible, textarea:focus-visible, input[type='file']:focus-visible { outline: 2px solid var(--pen); outline-offset: 1px; }
+.field > select { display: block; }
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+
+/* Create and details */
+.details { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 24px; padding: clamp(16px, 3vw, 24px); background: var(--sheet); border: 1px solid var(--line); }
+.type-option { display: grid; gap: 2px; justify-items: start; width: 100%; margin-bottom: 8px; padding: 10px 14px; text-align: left; color: var(--text); background: var(--sheet); border-color: var(--text); }
+.type-option strong { font-size: 0.9375rem; }
+.type-option span { font-size: 0.8125rem; font-weight: 500; }
+.type-option.on { color: #fff; background: var(--ink); }
+.type-option::before { display: none; }
+.drop { display: grid; gap: 10px; justify-items: start; min-height: 160px; align-content: center; padding: 20px; background: var(--paper); border: 2px dashed var(--line-strong); }
+.drop.is-bad { border-color: var(--mark); }
+.drop strong { font-size: 1.125rem; font-weight: 900; }
+.drop input[type='file'] { max-width: 100%; font: inherit; font-size: 0.875rem; }
+
+/* Two-panel workbench */
+.workbench { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 16px; }
+.workbench > .pdf-pane { flex: 1 1 340px; }
+.workbench > .panel { flex: 999 1 520px; }
+.key-bench > .panel:first-child { flex: 999 1 640px; }
+.key-bench > .panel:last-child { flex: 1 1 280px; }
+.preview { display: grid; gap: 12px; }
+.preview .workbench > .pdf-pane { flex: 999 1 560px; }
+.preview .workbench > .panel { flex: 1 1 280px; }
+.panel, .pdf-pane { min-width: 0; display: grid; gap: 12px; padding: 16px; background: var(--sheet); border: 1px solid var(--line); }
+.panel h2 { font-size: 1.125rem; }
+.panel-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.big { font-size: clamp(1.25rem, 3vw, 2rem); font-weight: 900; letter-spacing: -0.03em; }
+.row-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.row-actions.end { justify-content: flex-end; }
+
+/* PDF */
+.pdf-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.pdf-frame { min-width: 0; overflow: auto; background: var(--paper-2); }
+.pdf-frame canvas { display: block; max-width: 100%; }
+.pdf-nav { display: flex; gap: 8px; }
+.pdf-nav button { min-width: 48px; }
+.ocr-failed { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 12px; border: 2px solid var(--ink); background: var(--paper); font-size: 0.8125rem; font-weight: 600; }
+.ocr-failed > span { flex: 1 1 200px; }
+
+/* Structure */
+.passage { display: grid; gap: 12px; padding: 12px; border: 1px solid var(--line); }
+.passage legend { padding: 0 6px; font-size: 0.9375rem; font-weight: 900; }
+.range { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; align-items: end; padding: 10px; background: var(--paper); }
+.total { font-size: 0.9375rem; }
+
+/* Key */
+.table-scroll { overflow-x: auto; }
+.key-table { width: 100%; min-width: 620px; border-collapse: collapse; font-size: 0.875rem; }
+.key-table th, .key-table td { padding: 6px; text-align: left; border-bottom: 1px solid var(--line); }
+.key-table thead th { border-bottom: 2px solid var(--text); }
+.key-table tbody th { font-weight: 900; }
+.key-table tr.is-flag { background: var(--pen-soft); }
+.key-table input[type='text'] { min-width: 150px; min-height: 42px; padding: 0 10px; background: var(--sheet); border: 1px solid var(--line-strong); }
+.key-table button.review { min-width: 112px; min-height: 42px; padding: 0 10px; font-size: 0.8125rem; font-weight: 800; }
+.key-table button.review.is-on { color: #fff; background: var(--ink); }
+.scan-status { display: grid; gap: 8px; padding: 10px; background: var(--paper); border: 1px solid var(--line); font-size: 0.875rem; }
+
+/* Publish */
+.publish { border-top: 8px solid var(--ink); padding: clamp(16px, 3vw, 24px); }
+.publish.is-blocked { border-top-color: var(--mark); }
+.checks { border-top: 1px solid var(--line); }
+.checks li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; min-height: 56px; padding: 8px 0; border-bottom: 1px solid var(--line); font-weight: 700; }
+.checks .tag { color: #fff; background: var(--ink); border-color: transparent; font-weight: 800; }
+.checks .tag-bad { background: var(--mark); }
+button.secondary-link, .button-link.secondary-link { color: var(--text); background: transparent; border-color: var(--line-strong); }
+
+/* Preview */
+.banner { padding: 12px 16px; color: #fff; background: var(--ink); font-size: 0.875rem; font-weight: 700; }
+.sheet-list { display: grid; gap: 8px; }
+.sheet-list label { display: flex; align-items: center; gap: 10px; font-size: 0.875rem; font-weight: 700; }
+.sheet-list label span { flex: none; width: 56px; }
+.sheet-list input { flex: 1; min-width: 0; min-height: 42px; padding: 0 10px; background: var(--paper); border: 1px solid var(--line-strong); }
