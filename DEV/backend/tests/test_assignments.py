@@ -178,12 +178,16 @@ def test_student_list_has_no_key_fields(h: Harness, room: Room) -> None:
     mine = h.call(room.students[0].cookie, "GET", "/api/my/assignments").json
     row = next(a for a in mine if a["id"] == aid)
     assert set(row) == {
-        "id", "className", "opensAt", "dueAt", "maxAttempts", "mode", "status", "attemptsUsed",
+        "id", "testTitle", "className", "opensAt", "dueAt", "maxAttempts", "mode", "status", "attemptsUsed",
     }  # fmt: skip
+    assert row["testTitle"] == "M3 test"
     dump = json.dumps(mine).lower()
     for word in ("answer", "key", "testid", "recipient", "release"):
         assert word not in dump
-    assert aid not in json.dumps(h.call(room.students[1].cookie, "GET", "/api/my/assignments").json)
+    other = h.call(room.students[1].cookie, "GET", "/api/my/assignments").json
+    assert aid not in json.dumps(other)
+    titles = h.owner_rows("select count(*) as n from app.my_assignment_titles()")
+    assert titles[0]["n"] == 0  # no caller identity, no titles
 
 
 def test_answer_group_round_trips_in_structure(h: Harness, room: Room) -> None:

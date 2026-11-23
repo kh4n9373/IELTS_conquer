@@ -403,3 +403,14 @@ grant execute on function
   app.attempt_lock_for_grading(uuid), app.attempt_due(timestamptz, int),
   app.attempt_store_grade(uuid, text, timestamptz, jsonb, jsonb), app.attempt_result_row(uuid)
   to npa_app;
+
+-- Students cannot read tests; this gives them the title of assignments they received, nothing else.
+create function app.my_assignment_titles()
+returns table (assignment_id uuid, title text)
+language sql stable security definer set search_path = public, pg_temp as $$
+  select g.id, t.title from assignments g
+  join assignment_recipients r on r.assignment_id = g.id and r.student_id = app.user_id()
+  join tests t on t.id = g.test_id
+$$;
+revoke execute on function app.my_assignment_titles() from public;
+grant execute on function app.my_assignment_titles() to npa_student;

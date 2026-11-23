@@ -268,8 +268,14 @@ def my_assignments(ctx: CtxDep, identity: IdentityDep) -> Any:
                from assignments g left join classes c on c.id = g.class_id
                order by g.opens_at desc"""
         ).fetchall()
+        titles = {
+            t["assignment_id"]: t["title"] for t in tx.execute("select * from app.my_assignment_titles()")
+        }
         out = []
         for r in rows:
             status = status_of(r, ctx.now())
-            out.append({k: v for k, v in r.items() if k != "cancelledAt"} | {"status": status})
+            out.append(
+                {k: v for k, v in r.items() if k != "cancelledAt"}
+                | {"status": status, "testTitle": titles.get(r["id"])}
+            )
         return out
