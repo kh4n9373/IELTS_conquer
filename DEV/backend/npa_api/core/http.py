@@ -19,6 +19,7 @@ from starlette.responses import Response
 from .db import Identity, Pool, Role
 from .mailer import Mailer
 from .security import hash_token
+from .storage import FileStore
 
 SESSION_COOKIE = "npa_session"
 
@@ -69,6 +70,7 @@ class Ctx:
     secure_cookies: bool
     now: Callable[[], datetime]
     limiter: RateLimiter | None
+    store: FileStore | None = None
 
 
 def access(rule: Access, limit: int | None = None) -> Callable[[F], F]:

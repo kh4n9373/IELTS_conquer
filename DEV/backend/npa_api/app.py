@@ -1,4 +1,5 @@
 import logging
+import re
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -12,10 +13,15 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from .core.db import Pool
 from .core.http import Access, Ctx, GuardedRoute, HttpError, RateLimiter
 from .core.mailer import Mailer
-from .routes import admin, auth, classes, consent, invites, test_keys, tests
+from .core.storage import FileStore
+from .routes import admin, auth, classes, consent, invites, test_files, test_keys, tests
 
 log = logging.getLogger("npa.api")
 BODY_LIMIT = 64 * 1024
+# Only these exact paths take a large raw PDF body; the upload handler enforces its own limit.
+UPLOAD_PATH = re.compile(
+    r"/api/tests/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/(pdf|key-source)"
+)
 
 
 class BodyLimit:
@@ -27,6 +33,9 @@ class BodyLimit:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        if scope["method"] == "PUT" and UPLOAD_PATH.fullmatch(scope["path"]):
             await self.app(scope, receive, send)
             return
         messages: list[Message] = []
@@ -63,6 +72,7 @@ def build_app(
     now: Callable[[], datetime] | None = None,
     rate_limit: bool = True,
     lifespan: Any = None,
+    store: FileStore | None = None,
 ) -> FastAPI:
     # Docs routes are off: they would be endpoints without an access rule.
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
@@ -73,6 +83,7 @@ def build_app(
         secure_cookies=secure_cookies,
         now=now or (lambda: datetime.now(UTC)),
         limiter=RateLimiter() if rate_limit else None,
+        store=store,
     )
     app.add_middleware(BodyLimit)
 
@@ -94,7 +105,7 @@ def build_app(
         return _error(500, "internal_error")
 
     # Added route by route: include_router wraps them, which would hide them from the guard check.
-    for module in (auth, admin, classes, invites, consent, tests, test_keys):
+    for module in (auth, admin, classes, invites, consent, tests, test_keys, test_files):
         app.router.routes.extend(module.router.routes)
 
     assert_all_guarded(app)

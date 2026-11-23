@@ -6,6 +6,7 @@ from typing import Any
 from uuid import UUID
 
 import pytest
+from fakes import MemoryFileStore
 from fastapi.testclient import TestClient
 
 from npa_api.app import build_app
@@ -29,6 +30,7 @@ class Harness:
     db: TestDb
     client: TestClient
     mail: list[Mail] = field(default_factory=list)
+    store: MemoryFileStore = field(default_factory=MemoryFileStore)
     now: datetime = datetime(2026, 11, 22, 3, tzinfo=UTC)
 
     def send(self, mail: Mail) -> None:
@@ -95,6 +97,7 @@ def h(db: TestDb) -> Iterator[Harness]:
         secure_cookies=False,
         now=lambda: harness.now,
         rate_limit=False,
+        store=harness.store,
     )
     with TestClient(app) as client:
         harness.client = client

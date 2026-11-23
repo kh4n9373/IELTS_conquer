@@ -29,10 +29,11 @@ def readiness(
         add("no_sections")
 
     page_count = pdf.get("page_count") if pdf is not None else None
-    if page_count is not None:
+    if pdf is not None:
         for section in sections:
             pages = [*section["passage_pages"], *section["question_pages"]]
-            if any(p < 1 or p > page_count for p in pages):
+            # An unknown page count cannot confirm any mapped page.
+            if any(p < 1 or page_count is None or p > page_count for p in pages):
                 add("page_out_of_range")
 
     numbers = sorted(q["number"] for q in questions)

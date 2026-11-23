@@ -9,10 +9,29 @@ from fastapi import FastAPI
 from .app import build_app
 from .core.db import open_pool
 from .core.mailer import ConsoleMailer
+from .core.storage import FileStore, S3FileStore
 
 
 def is_production() -> bool:
     return os.environ.get("APP_ENV") == "production"
+
+
+S3_NAMES = ("S3_ENDPOINT", "S3_PUBLIC_ENDPOINT", "S3_BUCKET", "S3_ACCESS_KEY", "S3_SECRET_KEY")
+
+
+def create_store() -> FileStore | None:
+    """Storage is optional: without all five settings the API starts and uploads return 503."""
+    values = [os.environ.get(name, "") for name in S3_NAMES]
+    if not all(values):
+        return None
+    endpoint, public_endpoint, bucket, access_key, secret_key = values
+    return S3FileStore(
+        endpoint=endpoint,
+        public_endpoint=public_endpoint,
+        bucket=bucket,
+        access_key=access_key,
+        secret_key=secret_key,
+    )
 
 
 def create_app() -> FastAPI:
@@ -33,6 +52,7 @@ def create_app() -> FastAPI:
         public_url=os.environ.get("PUBLIC_URL", "http://localhost:5173"),
         secure_cookies=is_production(),
         lifespan=lifespan,
+        store=create_store(),
     )
 
 
