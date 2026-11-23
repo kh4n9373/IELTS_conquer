@@ -69,15 +69,14 @@ def draft_version(tx: Conn, test_id: UUID, *, create: bool) -> dict[str, Any] | 
 
 
 def upsert_items(tx: Conn, version_id: UUID, items: Mapping[int, Sequence[str]], origin: Origin) -> None:
-    """Stores answers. A changed answer loses its review and origin; an unchanged one keeps both."""
+    """Stores answers under `origin`. A changed answer loses its review; an unchanged one keeps it."""
     for number, answers in items.items():
         tx.execute(
             """insert into keys.answer_key_items (version_id, teacher_id, question_number, answers, origin)
                select id, teacher_id, %s, %s, %s from keys.answer_key_versions where id = %s
                on conflict (version_id, question_number) do update set
                  answers = excluded.answers,
-                 origin = case when keys.answer_key_items.answers = excluded.answers
-                               then keys.answer_key_items.origin else excluded.origin end,
+                 origin = excluded.origin,
                  reviewed_at = case when keys.answer_key_items.answers = excluded.answers
                                     then keys.answer_key_items.reviewed_at end,
                  reviewed_by = case when keys.answer_key_items.answers = excluded.answers

@@ -73,13 +73,24 @@ def load_key(tx: Conn, test_id: UUID) -> dict[str, Any]:
     return {"version": version["version"], "approvedAt": version["approvedAt"], "items": items}
 
 
+def key_scan_status(tx: Conn, test_id: UUID) -> dict[str, Any] | None:
+    """State and fixed error code only: never OCR text, provider ids or lease data."""
+    return tx.execute(
+        """select j.state, j.error_code as "errorCode"
+           from ocr_jobs j join test_assets a on a.id = j.asset_id
+           where a.test_id = %s and a.kind = 'key_source'
+           order by j.created_at desc limit 1""",
+        (test_id,),
+    ).fetchone()
+
+
 @router.get("/api/tests/{id}/key")
 @access(TEACHER)
 def get_key(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
     with with_identity(ctx.pool, identity) as tx:
         if tx.execute("select 1 from tests where id = %s", (id,)).fetchone() is None:
             raise not_found()
-        return load_key(tx, id)
+        return {**load_key(tx, id), "scan": key_scan_status(tx, id)}
 
 
 @router.put("/api/tests/{id}/key/items")

@@ -200,13 +200,11 @@ def apply_drafts(tx: Conn, test_id: UUID, drafts: list[KeyDraft], origin: Origin
         assert version is not None  # noqa: S101
         upsert_items(tx, version["id"], {draft.number: draft.answers}, origin)
         bbox = finite_bbox(draft.bbox)
-        # upsert_items keeps the old origin on an unchanged answer; a new import owns the row.
         tx.execute(
             """update keys.answer_key_items
-               set origin = %s, flagged = %s, source_page = %s, source_bbox = %s
+               set flagged = %s, source_page = %s, source_bbox = %s
                where version_id = %s and question_number = %s""",
             (
-                origin,
                 flagged,
                 draft.page,
                 None if bbox is None else Jsonb(list(bbox)),

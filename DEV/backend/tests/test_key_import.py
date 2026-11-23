@@ -258,6 +258,33 @@ def test_manual_change_clears_import_source(h: Harness, t: dict[str, Any]) -> No
     assert (row["origin"], row["source_page"], row["source_bbox"]) == ("manual", None, None)
 
 
+def test_retyped_identical_value_becomes_manual_and_survives_import(h: Harness, t: dict[str, Any]) -> None:
+    tid = make(h, t)
+    put_key(h, t, tid, make_pdf(1, text="1. TRUE"))
+    post(h, t, tid, "import")
+    body = {"items": [{"number": 1, "answers": ["TRUE"]}]}
+    assert h.call(t["a"], "PUT", f"/api/tests/{tid}/key/items", body).status == 200
+    assert stored(h, tid)[1]["origin"] == "manual"
+    put_key(h, t, tid, make_pdf(1, text="1. FALSE"))
+    res = post(h, t, tid, "import")
+    assert res.json == {"filled": 0, "flagged": 0, "kept": 1, "unmatched": 0}
+    row = stored(h, tid)[1]
+    assert (row["answers"], row["origin"]) == (["TRUE"], "manual")
+
+
+def test_retyping_keeps_review_only_when_identical(h: Harness, t: dict[str, Any]) -> None:
+    tid = make(h, t)
+    put_key(h, t, tid, make_pdf(1, text="1. TRUE 2. TRUE"))
+    post(h, t, tid, "import")
+    h.call(t["a"], "POST", f"/api/tests/{tid}/key/review", {"numbers": [1, 2]})
+    body = {"items": [{"number": 1, "answers": ["TRUE"]}, {"number": 2, "answers": ["FALSE"]}]}
+    assert h.call(t["a"], "PUT", f"/api/tests/{tid}/key/items", body).status == 200
+    rows = stored(h, tid)
+    assert (rows[1]["origin"], rows[2]["origin"]) == ("manual", "manual")
+    assert rows[1]["reviewed_at"] is not None
+    assert rows[2]["reviewed_at"] is None
+
+
 def test_import_audit_has_no_answer_text(h: Harness, t: dict[str, Any]) -> None:
     tid = make(h, t)
     put_key(h, t, tid, make_pdf(1, text="14. zebrafish"))
@@ -331,6 +358,49 @@ def test_scan_replaces_finished_job(h: Harness, t: dict[str, Any], state: str) -
     assert len(after) == 1
     assert after[0]["id"] != first
     assert after[0]["state"] == "queued"
+
+
+def key_scan(h: Harness, t: dict[str, Any], tid: str) -> Any:
+    res = h.call(t["a"], "GET", f"/api/tests/{tid}/key")
+    assert res.status == 200
+    return res.json["scan"]
+
+
+def test_key_scan_status_is_null_without_job(h: Harness, t: dict[str, Any]) -> None:
+    tid = make(h, t)
+    assert key_scan(h, t, tid) is None
+    put_key(h, t, tid, make_pdf(1, text=None))
+    assert key_scan(h, t, tid) is None
+
+
+def test_key_scan_status_ignores_student_pdf_job(h: Harness, t: dict[str, Any]) -> None:
+    tid = make(h, t, pdf=False)
+    h.client.cookies.clear()
+    res = h.client.put(
+        f"/api/tests/{tid}/pdf",
+        content=make_pdf(1),
+        headers={"content-type": "application/pdf", "cookie": t["a"]},
+    )
+    assert res.status_code == 200
+    assert key_scan(h, t, tid) is None
+
+
+def test_key_scan_status_queued(h: Harness, t: dict[str, Any]) -> None:
+    tid = scanned_test(h, t)
+    post(h, t, tid, "scan")
+    assert key_scan(h, t, tid) == {"state": "queued", "errorCode": None}
+
+
+def test_key_scan_status_failed_exposes_only_state_and_code(h: Harness, t: dict[str, Any]) -> None:
+    tid = scanned_test(h, t)
+    post(h, t, tid, "scan")
+    h.owner_rows(
+        """update ocr_jobs set state = 'failed', error_code = 'bad_result',
+             provider_job_id = 'private-provider-id', lease_until = %s""",
+        (h.now,),
+    )
+    assert key_scan(h, t, tid) == {"state": "failed", "errorCode": "bad_result"}
+    assert "private-provider-id" not in str(h.call(t["a"], "GET", f"/api/tests/{tid}/key").json)
 
 
 # ---- worker ----
