@@ -59,6 +59,7 @@ class RangeBody(Body):
     to: Annotated[int, Field(ge=1, le=MAX_QUESTIONS)]
     questionType: QuestionType  # noqa: N815
     wordLimit: Annotated[int, Field(ge=1, le=20)] | None = None  # noqa: N815
+    answerGroup: Annotated[int, Field(ge=1, le=MAX_QUESTIONS)] | None = None  # noqa: N815
 
     @model_validator(mode="after")
     def check(self) -> "RangeBody":
@@ -109,6 +110,7 @@ def ranges_of(questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
             and last["to"] + 1 == q["number"]
             and last["questionType"] == q["questionType"]
             and last["wordLimit"] == q["wordLimit"]
+            and last["answerGroup"] == q["answerGroup"]
         ):
             last["to"] = q["number"]
         else:
@@ -118,6 +120,7 @@ def ranges_of(questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "to": q["number"],
                     "questionType": q["questionType"],
                     "wordLimit": q["wordLimit"],
+                    "answerGroup": q["answerGroup"],
                 }
             )
     return out
@@ -132,7 +135,8 @@ def load_structure(tx: Conn, test_id: UUID) -> list[dict[str, Any]]:
         (test_id,),
     ).fetchall()
     questions = tx.execute(
-        """select section_id, number, question_type as "questionType", word_limit as "wordLimit"
+        """select section_id, number, question_type as "questionType", word_limit as "wordLimit",
+                  answer_group as "answerGroup"
            from questions where test_id = %s order by number""",
         (test_id,),
     ).fetchall()
@@ -299,9 +303,18 @@ def put_structure(id: UUID, body: StructureBody, ctx: CtxDep, identity: Identity
                 for number in range(r.from_, r.to + 1):
                     tx.execute(
                         """insert into questions
-                             (test_id, teacher_id, section_id, number, question_type, word_limit)
-                           values (%s, %s, %s, %s, %s, %s)""",
-                        (id, test["teacher_id"], created["id"], number, r.questionType, r.wordLimit),
+                             (test_id, teacher_id, section_id, number, question_type, word_limit,
+                              answer_group)
+                           values (%s, %s, %s, %s, %s, %s, %s)""",
+                        (
+                            id,
+                            test["teacher_id"],
+                            created["id"],
+                            number,
+                            r.questionType,
+                            r.wordLimit,
+                            r.answerGroup,
+                        ),
                     )
         new_shape = {
             n: (r.questionType, r.wordLimit)

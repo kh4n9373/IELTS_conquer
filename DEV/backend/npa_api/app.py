@@ -14,7 +14,7 @@ from .core.db import Pool
 from .core.http import Access, Ctx, GuardedRoute, HttpError, RateLimiter
 from .core.mailer import Mailer
 from .core.storage import FileStore
-from .routes import admin, auth, classes, consent, invites, test_files, test_keys, tests
+from .routes import admin, assignments, auth, classes, consent, invites, test_files, test_keys, tests
 
 log = logging.getLogger("npa.api")
 BODY_LIMIT = 64 * 1024
@@ -105,7 +105,7 @@ def build_app(
         return _error(500, "internal_error")
 
     # Added route by route: include_router wraps them, which would hide them from the guard check.
-    for module in (auth, admin, classes, invites, consent, tests, test_keys, test_files):
+    for module in (auth, admin, classes, invites, consent, tests, test_keys, test_files, assignments):
         app.router.routes.extend(module.router.routes)
 
     assert_all_guarded(app)

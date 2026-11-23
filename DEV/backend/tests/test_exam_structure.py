@@ -44,7 +44,9 @@ def test_range_assignment_sets_type_for_questions_1_to_6(h: Harness, t: dict[str
     assert [q["number"] for q in questions] == [1, 2, 3, 4, 5, 6]
     assert {q["questionType"] for q in questions} == {"sentence_completion"}
     assert {q["wordLimit"] for q in questions} == {2}
-    assert res.json["sections"][0]["ranges"] == [rng(1, 6, "sentence_completion", wordLimit=2)]
+    assert res.json["sections"][0]["ranges"] == [
+        rng(1, 6, "sentence_completion", wordLimit=2) | {"answerGroup": None}
+    ]
     assert "band" not in str(res.json)
 
 

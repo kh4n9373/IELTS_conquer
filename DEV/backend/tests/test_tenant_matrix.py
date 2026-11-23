@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
+from m3_helpers import publish_test
 
 from conftest import PASSWORD, Harness
 from npa_api.app import access_table
@@ -54,6 +55,12 @@ MATRIX: dict[str, tuple[Any, int | None]] = {
     "POST /api/tests/{id}/ocr": (None, 404),
     "POST /api/tests/{id}/publish": (None, 404),
     "POST /api/tests/{id}/archive": (None, 404),
+    "GET /api/assignments": (None, None),
+    "POST /api/assignments": (None, None),
+    "GET /api/assignments/{id}": (None, 404),
+    "PATCH /api/assignments/{id}": ({"maxAttempts": 2}, 404),
+    "POST /api/assignments/{id}/cancel": (None, 404),
+    "GET /api/my/assignments": (None, None),
 }
 
 
@@ -67,10 +74,12 @@ class World:
     student_id: str
     teacher_id: str
     test_id: str
+    assignment_id: str
 
     def fill(self, url: str) -> str:
         return (
-            url.replace("/api/tests/{id}", f"/api/tests/{self.test_id}")
+            url.replace("/api/assignments/{id}", f"/api/assignments/{self.assignment_id}")
+            .replace("/api/tests/{id}", f"/api/tests/{self.test_id}")
             .replace("/api/invites/{id}", f"/api/invites/{self.invite_id}")
             .replace("/api/admin/teachers/{id}", f"/api/admin/teachers/{self.teacher_id}")
             .replace("{id}", self.class_id)
@@ -100,6 +109,21 @@ def w(h: Harness) -> World:
             "consents": {"core_learning": True, "ai_processing": False},
         },
     )
+    published = publish_test(h, teacher, answers={1: ["a"], 2: ["b"]})
+    assignment = h.call(
+        teacher,
+        "POST",
+        "/api/assignments",
+        {
+            "testId": published,
+            "classId": class_id,
+            "opensAt": "2026-11-22T04:00:00Z",
+            "dueAt": "2026-11-23T04:00:00Z",
+            "maxAttempts": 1,
+            "mode": "exam",
+        },
+    )
+    assert assignment.status == 201
     cookies = {"admin": admin, "teacher": teacher, "student": h.login("student@test.local")}
     return World(
         cookies,
@@ -110,6 +134,7 @@ def w(h: Harness) -> World:
         student.json["id"],
         str(teacher_id),
         test_id,
+        assignment.json["id"],
     )
 
 
