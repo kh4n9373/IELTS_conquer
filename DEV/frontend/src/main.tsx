@@ -6,9 +6,11 @@ import { createBrowserRouter, createRoutesFromElements, Navigate, Outlet, Route,
 import { RouterProvider } from 'react-router/dom';
 import { AdminPage } from './pages/admin';
 import { ForgotPage, LoginPage, ResetPage } from './pages/auth';
+import { AssignmentDetailPage } from './pages/assignments/detail';
+import { AssignmentsPage } from './pages/assignments/list';
 import { ClassDetailPage, ClassesPage } from './pages/classes';
 import { JoinPage } from './pages/join';
-import { SettingsPage, StudentHomePage } from './pages/student';
+import { ExamPlaceholder, ResultPlaceholder, SettingsPage, StudentHomePage } from './pages/student';
 import { DetailsPage, EditorLayout, NewTestPage } from './pages/tests/editor';
 import { KeyPage } from './pages/tests/key';
 import { TestListPage } from './pages/tests/list';
@@ -67,6 +69,7 @@ const router = createBrowserRouter(
         <Route element={<RoleGate roles={['teacher']} />}>
           <Route path="/classes" element={<ClassesPage />} />
           <Route path="/classes/:id" element={<ClassDetailPage />} />
+          <Route path="/assignments/:id" element={<AssignmentDetailPage />} />
           <Route path="/tests" element={<TestListPage />} />
           <Route path="/tests/new" element={<NewTestPage />} />
           <Route path="/tests/:id" element={<EditorLayout />}>
@@ -79,6 +82,11 @@ const router = createBrowserRouter(
         </Route>
         <Route element={<RoleGate roles={['student']} />}>
           <Route path="/home" element={<StudentHomePage />} />
+          <Route path="/exam/:attemptId" element={<ExamPlaceholder />} />
+          <Route path="/results/:attemptId" element={<ResultPlaceholder />} />
+        </Route>
+        <Route element={<RoleGate roles={['student', 'teacher']} />}>
+          <Route path="/assignments" element={<AssignmentsPage />} />
         </Route>
         <Route element={<RoleGate roles={['student', 'teacher']} />}>
           <Route path="/settings" element={<SettingsPage />} />

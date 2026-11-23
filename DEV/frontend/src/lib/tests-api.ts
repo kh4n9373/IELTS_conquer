@@ -52,7 +52,7 @@ export type TestSummary = {
 
 export type JobState = { state: 'queued' | 'running' | 'done' | 'failed'; errorCode: string | null };
 export type SectionQuestion = { number: number; questionType: QuestionType; wordLimit: number | null };
-export type SectionRange = { from: number; to: number; questionType: QuestionType; wordLimit: number | null };
+export type SectionRange = { from: number; to: number; questionType: QuestionType; wordLimit: number | null; answerGroup?: number | null };
 export type Section = {
   id: string;
   position: number;
@@ -102,7 +102,7 @@ export type StructureSection = {
   questionPages: number[];
   unitsPrimary: string[];
   unitsSecondary: string[];
-  ranges: { from: number; to: number; questionType: QuestionType; wordLimit?: number }[];
+  ranges: { from: number; to: number; questionType: QuestionType; wordLimit?: number; answerGroup?: number }[];
 };
 
 export type CreateTest = { title: string; sourceType: SourceType; testType: TestType; durationMinutes: number };

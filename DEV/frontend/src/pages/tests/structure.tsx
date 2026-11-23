@@ -7,7 +7,7 @@ import { useI18n } from '../../lib/i18n';
 import { GROUP_OF, QUESTION_TYPES, testsApi, type QuestionGroup, type QuestionType, type Section, type StructureSection } from '../../lib/tests-api';
 import { detailKey, useTest } from './editor';
 
-type DraftRange = { uid: number; from: string; to: string; questionType: QuestionType; wordLimit: string };
+type DraftRange = { uid: number; from: string; to: string; questionType: QuestionType; wordLimit: string; answerGroup: string };
 type DraftSection = {
   uid: number;
   title: string;
@@ -59,8 +59,9 @@ function toStructure(drafts: DraftSection[]): { sections: StructureSection[] } |
       const to = whole(r.to);
       const limit = r.wordLimit.trim() === '' ? undefined : whole(r.wordLimit);
       const allowsLimit = GROUP_OF[r.questionType] === 'completion';
-      if (from === null || to === null || from < 1 || to > 200 || from > to || limit === null || (limit !== undefined && (limit < 1 || limit > 20))) return 'range';
-      ranges.push({ from, to, questionType: r.questionType, ...(allowsLimit && limit !== undefined ? { wordLimit: limit } : {}) });
+      const group = r.answerGroup.trim() === '' || r.questionType !== 'multiple_choice' ? undefined : whole(r.answerGroup);
+      if (from === null || to === null || from < 1 || to > 200 || from > to || limit === null || group === null || (group !== undefined && (group < 1 || group > 200)) || (limit !== undefined && (limit < 1 || limit > 20))) return 'range';
+      ranges.push({ from, to, questionType: r.questionType, ...(allowsLimit && limit !== undefined ? { wordLimit: limit } : {}), ...(group !== undefined ? { answerGroup: group } : {}) });
     }
     sections.push({ title: d.title.trim(), suggestedMinutes: d.suggestedMinutes, passagePages, questionPages, unitsPrimary: d.unitsPrimary, unitsSecondary: d.unitsSecondary, ranges });
   }
@@ -83,7 +84,7 @@ export function StructurePage() {
       suggestedMinutes: s.suggestedMinutes,
       unitsPrimary: s.unitsPrimary,
       unitsSecondary: s.unitsSecondary,
-      ranges: s.ranges.map((r) => ({ uid: next(), from: String(r.from), to: String(r.to), questionType: r.questionType, wordLimit: r.wordLimit === null ? '' : String(r.wordLimit) })),
+      ranges: s.ranges.map((r) => ({ uid: next(), from: String(r.from), to: String(r.to), questionType: r.questionType, wordLimit: r.wordLimit === null ? '' : String(r.wordLimit), answerGroup: r.answerGroup ? String(r.answerGroup) : '' })),
     }));
   const [drafts, setDrafts] = useState(() => fromServer(test.sections));
   const [dirty, setDirty] = useState(false);
@@ -121,7 +122,7 @@ export function StructurePage() {
   const addRange = (s: DraftSection) => {
     const all = drafts.flatMap((d) => d.ranges);
     const top = Math.max(0, ...all.map((r) => whole(r.to) ?? 0));
-    patch(s.uid, { ranges: [...s.ranges, { uid: next(), from: String(top + 1), to: String(top + 1), questionType: 'multiple_choice', wordLimit: '' }] });
+    patch(s.uid, { ranges: [...s.ranges, { uid: next(), from: String(top + 1), to: String(top + 1), questionType: 'multiple_choice', wordLimit: '', answerGroup: '' }] });
   };
 
   const counts: Record<QuestionGroup, number> = { matching: 0, completion: 0, multiple_choice: 0, tfng: 0 };
@@ -182,13 +183,18 @@ export function StructurePage() {
                     <input type="number" min={1} max={200} value={r.to} onChange={(e) => patchRange(s.uid, r.uid, { to: e.target.value })} />
                   </label>
                   <label className="plain">{t.tests.structure.kind}
-                    <select value={r.questionType} onChange={(e) => patchRange(s.uid, r.uid, { questionType: e.target.value as QuestionType, wordLimit: GROUP_OF[e.target.value as QuestionType] === 'completion' ? r.wordLimit : '' })}>
+                    <select value={r.questionType} onChange={(e) => patchRange(s.uid, r.uid, { questionType: e.target.value as QuestionType, wordLimit: GROUP_OF[e.target.value as QuestionType] === 'completion' ? r.wordLimit : '', answerGroup: e.target.value === 'multiple_choice' ? r.answerGroup : '' })}>
                       {QUESTION_TYPES.map((kind) => <option key={kind} value={kind}>{t.tests.questionTypes[kind]}</option>)}
                     </select>
                   </label>
                   {GROUP_OF[r.questionType] === 'completion' && (
                     <label className="plain">{t.tests.structure.wordLimit}
                       <input type="number" min={1} max={20} value={r.wordLimit} onChange={(e) => patchRange(s.uid, r.uid, { wordLimit: e.target.value })} />
+                    </label>
+                  )}
+                  {r.questionType === 'multiple_choice' && (
+                    <label className="plain" title={t.tests.structure.answerGroupHint}>{t.tests.structure.answerGroup}
+                      <input type="number" min={1} max={200} value={r.answerGroup} onChange={(e) => patchRange(s.uid, r.uid, { answerGroup: e.target.value })} />
                     </label>
                   )}
                   <button type="button" className="danger ghost" onClick={() => patch(s.uid, { ranges: s.ranges.filter((x) => x.uid !== r.uid) })}>{t.tests.structure.removeRange}</button>

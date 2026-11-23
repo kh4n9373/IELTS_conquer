@@ -11,8 +11,8 @@ import { Brand, ErrorAlert, Icon, LangSwitch, PageLoader, type IconName } from '
 /** Only screens that exist today get a tab. Upcoming areas are listed on the student home. */
 const TABS: Record<Me['role'], [string, keyof Copy['nav'], IconName][]> = {
   admin: [['/admin', 'teachers', 'users']],
-  teacher: [['/classes', 'classes', 'book'], ['/tests', 'tests', 'exam']],
-  student: [['/home', 'home', 'book']],
+  teacher: [['/classes', 'classes', 'book'], ['/tests', 'tests', 'exam'], ['/assignments', 'assignments', 'pen']],
+  student: [['/home', 'home', 'book'], ['/assignments', 'myWork', 'exam']],
 };
 
 /** The red block glides to the active tab and sits flush against the logo plate. */

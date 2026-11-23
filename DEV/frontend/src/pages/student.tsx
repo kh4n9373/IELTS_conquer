@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router';
 import { api, type ClassSummary, type Consents } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 import { useFreshItems } from '../lib/motion';
@@ -95,6 +96,27 @@ export function SettingsPage() {
           )}
         </div>
       </section>
+    </>
+  );
+}
+
+/** Placeholders so student links resolve until the exam room and result screens land. */
+export function ExamPlaceholder() {
+  const { t } = useI18n();
+  return (
+    <>
+      <PageHead title={t.my.title} lede={t.my.placeholderExam} />
+      <Link className="button-link auto" to="/assignments" viewTransition>{t.my.back}</Link>
+    </>
+  );
+}
+
+export function ResultPlaceholder() {
+  const { t } = useI18n();
+  return (
+    <>
+      <PageHead title={t.my.title} lede={t.my.placeholderResult} />
+      <Link className="button-link auto" to="/assignments" viewTransition>{t.my.back}</Link>
     </>
   );
 }
