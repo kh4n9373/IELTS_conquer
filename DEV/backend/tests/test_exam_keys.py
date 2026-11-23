@@ -93,7 +93,7 @@ def test_paste_parses_variants_for_question_23() -> None:
 
 
 def test_paste_accepts_the_three_numbering_styles() -> None:
-    assert parse_pasted_key("1. E\n2 F\n3) G\n\n  4.  not given ;; NG ") == {
+    assert parse_pasted_key("1. E\n2 F\n3) G\n\n  4.  not given ; NG ") == {
         1: ["E"],
         2: ["F"],
         3: ["G"],
@@ -101,7 +101,9 @@ def test_paste_accepts_the_three_numbering_styles() -> None:
     }
 
 
-@pytest.mark.parametrize("text", ["", "   \n", "12", "x. E", "1. ;", "1. A\n1. B", "0. A"])
+@pytest.mark.parametrize(
+    "text", ["", "   \n", "12", "x. E", "1. ;", "1. A;;B", "1. A;", "1. A\n1. B", "0. A"]
+)
 def test_paste_rejects_malformed_text(text: str) -> None:
     with pytest.raises(ValueError):  # noqa: PT011
         parse_pasted_key(text)
@@ -413,6 +415,23 @@ def test_approved_key_version_and_items_are_immutable(h: Harness, t: dict[str, A
     ident = Identity(t["id"], "teacher", t["id"])
     with pytest.raises(psycopg.Error, match="immutable"), with_identity(h.db.app_pool, ident) as tx:
         tx.execute(sql.encode(), {"v": version, "t": t["id"]})
+
+
+@pytest.mark.parametrize("change", ["test_id = %(other)s", "version = 9"])
+def test_approval_cannot_rewrite_version_identity(h: Harness, t: dict[str, Any], change: str) -> None:
+    _, version = approved_version(h, t)
+    other = make(h, t)
+    ident = Identity(t["id"], "teacher", t["id"])
+    sql = (
+        "update keys.answer_key_versions set approved_at = now(), approved_by = %(t)s, "
+        f"{change} where id = %(v)s"
+    )
+    with pytest.raises(psycopg.Error, match="immutable"), with_identity(h.db.app_pool, ident) as tx:
+        tx.execute(sql.encode(), {"v": version, "t": t["id"], "other": other})
+    row = h.owner_rows("select approved_at, version from keys.answer_key_versions where id = %s", (version,))[
+        0
+    ]
+    assert (row["approved_at"], row["version"]) == (None, 1)
 
 
 def test_unapproved_version_stays_editable_and_approval_is_one_way(h: Harness, t: dict[str, Any]) -> None:

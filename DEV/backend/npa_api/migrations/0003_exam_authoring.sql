@@ -137,10 +137,15 @@ create trigger answer_key_versions_keep_approved before delete on keys.answer_ke
   for each row execute function app.reject_approved_key_delete();
 revoke execute on function app.reject_approved_key_delete() from public;
 
--- Approval freezes a version: the only allowed update is approved_at/approved_by going from null to set.
+-- Approval freezes a version: the only allowed update is approved_at/approved_by going from null to set,
+-- and identity columns (id, test_id, teacher_id, version) never change, even in that same update.
 create function app.reject_approved_key_version_update() returns trigger language plpgsql as $$
 begin
-  if old.approved_at is not null then
+  if old.approved_at is not null
+     or new.id is distinct from old.id
+     or new.test_id is distinct from old.test_id
+     or new.teacher_id is distinct from old.teacher_id
+     or new.version is distinct from old.version then
     raise exception 'approved answer key versions are immutable';
   end if;
   return new;

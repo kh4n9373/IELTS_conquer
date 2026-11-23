@@ -44,7 +44,7 @@ def parse_pasted_key(text: str) -> dict[int, list[str]]:
         number = int(match.group(1))
         if number < 1 or number in parsed:
             raise ValueError("invalid or repeated number")
-        parsed[number] = normalize_answers([p for p in match.group(2).split(";") if p.strip()])
+        parsed[number] = normalize_answers(match.group(2).split(";"))
     if not parsed:
         raise ValueError("empty key")
     return parsed
