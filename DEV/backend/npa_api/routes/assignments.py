@@ -29,7 +29,7 @@ Instant = Annotated[datetime, Field(strict=False), AfterValidator(aware)]
 SELECT = """select g.id, g.test_id as "testId", t.title as "testTitle", g.class_id as "classId",
   c.name as "className", g.opens_at as "opensAt", g.due_at as "dueAt", g.max_attempts as "maxAttempts",
   g.mode, g.release_policy as "releasePolicy", g.release_at as "releaseAt", g.cancelled_at as "cancelledAt",
-  g.created_at as "createdAt",
+  g.created_at as "createdAt", (g.is_trial or c.is_trial) as "isTrial",
   (select count(*) from assignment_recipients r where r.assignment_id = g.id)::int as "recipientCount"
   from assignments g join tests t on t.id = g.test_id join classes c on c.id = g.class_id"""
 
@@ -201,7 +201,12 @@ def get_assignment(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
                                and a.student_id = r.student_id and a.status = 'in_progress') as open,
                       (select count(*) from late_answers l join attempts a on a.id = l.attempt_id
                         where a.assignment_id = r.assignment_id
-                        and a.student_id = r.student_id)::int as "lateCount"
+                        and a.student_id = r.student_id)::int as "lateCount",
+                      coalesce((select jsonb_agg(jsonb_build_object('number', l.question_number,
+                                'value', l.value) order by l.received_at, l.question_number)
+                                from late_answers l join attempts a on a.id = l.attempt_id
+                                where a.assignment_id = r.assignment_id and a.student_id = r.student_id),
+                               '[]'::jsonb) as late
                from assignment_recipients r join users u on u.id = r.student_id
                where r.assignment_id = %s order by u.display_name, u.id""",
             (id,),
@@ -213,6 +218,7 @@ def get_assignment(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
                 "state": "in_progress" if r["open"] else "submitted" if r["attempts"] else "not_started",
                 "attempts": r["attempts"],
                 "lateCount": r["lateCount"],
+                "late": r["late"],
             }
             for r in rows
         ]

@@ -398,7 +398,8 @@ begin
 end $$;
 
 -- Raw result for the API, which decides whether it may be shown (release policy).
-create function app.attempt_result_row(p_attempt uuid)
+-- An attempt past its deadline and grace period is as good as over, so it never holds a release back.
+create function app.attempt_result_row(p_attempt uuid, p_cutoff timestamptz)
 returns jsonb language sql stable security definer set search_path = public, pg_temp as $$
   select jsonb_build_object(
     'attemptId', a.id, 'studentId', a.student_id, 'teacherId', a.teacher_id, 'status', a.status,
@@ -415,7 +416,8 @@ returns jsonb language sql stable security definer set search_path = public, pg_
     'facts', jsonb_build_object(
       'ownFinal', (select count(*) from attempts x where x.assignment_id = g.id
                    and x.student_id = a.student_id and x.status <> 'in_progress'),
-      'openAttempts', (select count(*) from attempts x where x.assignment_id = g.id and x.status = 'in_progress'),
+      'openAttempts', (select count(*) from attempts x where x.assignment_id = g.id and x.status = 'in_progress'
+                       and x.deadline_at >= p_cutoff),
       -- A removed student who never started cannot finish, so they do not hold back the group.
       'activeRecipients', (select count(*) from assignment_recipients r where r.assignment_id = g.id
                            and (exists (select 1 from attempts x where x.assignment_id = g.id
@@ -444,7 +446,7 @@ revoke execute on function
   app.attempt_room(uuid, timestamptz), app.attempt_save(uuid, text, jsonb, timestamptz, int),
   app.attempt_pdf_key(uuid, timestamptz), app.attempt_assert_active(uuid), app.attempt_lock_for_grading(uuid),
   app.attempt_due(timestamptz, int), app.attempt_store_grade(uuid, text, timestamptz, jsonb, jsonb),
-  app.attempt_result_row(uuid)
+  app.attempt_result_row(uuid, timestamptz)
   from public;
 grant execute on function
   app.attempt_start(uuid, timestamptz, text), app.attempt_claim(uuid, timestamptz),
@@ -453,7 +455,7 @@ grant execute on function
   to npa_student;
 grant execute on function
   app.attempt_lock_for_grading(uuid), app.attempt_due(timestamptz, int),
-  app.attempt_store_grade(uuid, text, timestamptz, jsonb, jsonb), app.attempt_result_row(uuid)
+  app.attempt_store_grade(uuid, text, timestamptz, jsonb, jsonb), app.attempt_result_row(uuid, timestamptz)
   to npa_app;
 
 -- Students cannot read tests; this gives them the title of assignments they received, nothing else.

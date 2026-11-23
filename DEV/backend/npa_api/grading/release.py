@@ -28,7 +28,7 @@ def is_released(f: ReleaseFacts, now: datetime) -> bool:
     if f.max_attempts > 1 and f.own_final_count < f.max_attempts and now < f.due_at:
         return False
     if f.policy == "scheduled":
-        return f.release_at is not None and now >= f.release_at
+        return f.release_at is not None and now >= f.release_at and f.open_attempts == 0
     group_done = f.active_recipients > 0 and f.recipients_done >= f.active_recipients
     return group_done or (now >= f.due_at and f.open_attempts == 0)
 
@@ -73,7 +73,8 @@ def build_result(row: dict[str, Any], *, released: bool) -> dict[str, Any]:
         "correct": run["correct"],
         "total": run["total"],
         "percent": float(run["percent"]),
-        "countsForProgress": row["number"] == 1 and not row["isTrial"],
+        "isTrial": row["isTrial"],
+        "countsForProgress": row["number"] == 1 and row["mode"] == "exam" and not row["isTrial"],
         "sections": [
             {
                 "position": s["position"],

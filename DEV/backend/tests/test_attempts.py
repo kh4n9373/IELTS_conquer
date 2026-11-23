@@ -65,6 +65,10 @@ def save(h: Harness, student: StudentRef, attempt: str, token: str, *items: dict
     )
 
 
+def submit_with(h: Harness, student: StudentRef, attempt: str, token: str) -> Any:
+    return h.call(student.cookie, "POST", f"/api/attempts/{attempt}/submit", {"writerToken": token})
+
+
 def answers(h: Harness, student: StudentRef, attempt: str) -> dict[int, dict[str, Any]]:
     res = h.call(student.cookie, "GET", f"/api/attempts/{attempt}")
     assert res.status == 200
@@ -135,6 +139,16 @@ def test_second_device_takes_over_and_old_is_rejected(h: Harness, room: Room) ->
         assert (stale.status, stale.json) == (409, {"error": "stale_device"})
         assert answers(h, s, attempt)[1]["value"] == "first"
         assert save(h, s, attempt, new, item(1, "second", 2)).status == 200
+
+
+def test_stale_device_cannot_submit(h: Harness, room: Room) -> None:
+    aid, s = room.assign(h), room.students[0]
+    with h.later(hours=2):
+        attempt, old = enter(h, s, aid)
+        new = h.call(s.cookie, "POST", f"/api/attempts/{attempt}/claim").json["writerToken"]
+        res = submit_with(h, s, attempt, old)
+        assert (res.status, res.json) == (409, {"error": "stale_device"})
+        assert submit_with(h, s, attempt, new).status == 200
 
 
 def test_answer_in_grace_is_accepted(h: Harness, room: Room) -> None:
@@ -235,9 +249,9 @@ def test_removed_student_cannot_reenter(h: Harness, room: Room) -> None:
                 ("GET", f"/api/attempts/{attempt}/pdf-url"),
                 ("POST", f"/api/attempts/{attempt}/submit"),
             ):
-                res = h.call(
-                    s.cookie, method, url, {"device": "desktop"} if url.endswith("attempts") else None
-                )
+                sent = {"device": "desktop"} if url.endswith("attempts") else None
+                sent = {"writerToken": token} if url.endswith("submit") else sent
+                res = h.call(s.cookie, method, url, sent)
                 assert (res.status, res.json) == (403, {"error": "removed_from_class"}), url
             res = save(h, s, attempt, token, item(1, "after", 2))
             assert (res.status, res.json) == (403, {"error": "removed_from_class"})

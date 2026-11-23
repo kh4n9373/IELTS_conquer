@@ -15,6 +15,12 @@ type View = 'text' | 'q';
 const LAST_MINUTES_MS = 5 * 60_000;
 const POLL_MS = 3000;
 
+/** An edit made during a slow save is not part of the request in flight, so a second pass sends it. */
+async function sendAll(queue: AnswerQueue) {
+  await queue.flush();
+  await queue.flush();
+}
+
 function useMedia(query: string) {
   const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
   useEffect(() => {
@@ -48,10 +54,14 @@ export function ExamRoomPage() {
   const boot = useQuery({
     queryKey: ['exam-room', attemptId],
     queryFn: async () => {
+      // Claim first: a seq this device gets from the room is only safe once older devices are locked out.
+      const claimed = await examApi.claim(attemptId).then(
+        (c) => ({ token: c.writerToken as string | null, error: null as unknown }),
+        (error: unknown) => ({ token: null, error }),
+      );
       const room = await examApi.room(attemptId);
-      if (room.status !== 'in_progress') return { room, token: null };
-      const { writerToken } = await examApi.claim(attemptId);
-      return { room, token: writerToken };
+      if (room.status === 'in_progress' && claimed.token === null) throw claimed.error;
+      return { room, token: claimed.token };
     },
     staleTime: Infinity,
     gcTime: 0,
@@ -157,7 +167,7 @@ function Room({ attemptId, room, tokenRef, clockRef, queue, restored }: RoomProp
   // Time is up: send what is waiting, then wait for the server to close and grade the attempt.
   useEffect(() => {
     if (!expired) return;
-    void queue.flush();
+    void sendAll(queue);
     const id = setInterval(() => {
       void examApi.room(attemptId).then(
         (fresh) => fresh.status !== 'in_progress' && navigate(`/results/${attemptId}`, { replace: true }),
@@ -248,12 +258,12 @@ function Room({ attemptId, room, tokenRef, clockRef, queue, restored }: RoomProp
     setSubmitting(true);
     setSubmitError(null);
     try {
-      await queue.flush();
+      await sendAll(queue);
       if (queue.pending() > 0) {
         setSubmitError(t.exam.unsentBlock(queue.pending()));
         return;
       }
-      await examApi.submit(attemptId);
+      await examApi.submit(attemptId, tokenRef.current);
       navigate(`/results/${attemptId}`, { replace: true });
     } catch (error) {
       setSubmitError(errorText(error, t.errors));
@@ -372,7 +382,7 @@ function Room({ attemptId, room, tokenRef, clockRef, queue, restored }: RoomProp
             {submitError && <p className="alert" role="alert"><span>{submitError}</span></p>}
             <div className="exam-actions">
               <button type="button" className="xb" autoFocus disabled={submitting} onClick={() => setConfirming(false)}>{t.exam.keepWorking}</button>
-              <button type="button" className="xb red" disabled={submitting} onClick={() => void submit()}>
+              <button type="button" className="xb red" disabled={submitting || readOnly} onClick={() => void submit()}>
                 {submitting ? t.exam.sending : t.exam.submit}
               </button>
             </div>

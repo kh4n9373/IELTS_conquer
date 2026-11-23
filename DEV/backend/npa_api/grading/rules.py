@@ -64,10 +64,13 @@ def _grade_single(q: GradableQuestion, given: str, rules: RuleSet) -> Mark:
     s = _canonical(q, given, rules)
     if q.word_limit is not None and len(s.split()) > q.word_limit:
         return Mark(q.number, given, False, "over_word_limit")
-    if rules == "pilot-1":
-        s = _strip_article(s)
-    ok = s in _accepted(q, rules)
+    accepted = _accepted(q, rules)
+    ok = s in accepted or (rules == "pilot-1" and _strip_article(s) in accepted)
     return Mark(q.number, given, ok, "correct" if ok else "wrong")
+
+
+def _over_limit(q: GradableQuestion, given: str, rules: RuleSet) -> bool:
+    return q.word_limit is not None and len(_canonical(q, given, rules).split()) > q.word_limit
 
 
 def _grade_group(
@@ -77,14 +80,14 @@ def _grade_group(
     owners: dict[str, int] = {}
     for q in sorted(group, key=lambda x: x.number):
         g = _given(answers, q.number)
-        if g is not None:
+        if g is not None and not _over_limit(q, g, rules):
             owners.setdefault(_canonical(q, g, rules), q.number)
     slots = {q.number: _accepted(q, rules) for q in group}
     taken: dict[int, str] = {}  # slot -> input
 
     def place(inp: str, seen: set[int]) -> bool:
         for n, acc in slots.items():
-            if inp in acc and n not in seen:
+            if (inp in acc or (rules == "pilot-1" and _strip_article(inp) in acc)) and n not in seen:
                 seen.add(n)
                 if n not in taken or place(taken[n], seen):
                     taken[n] = inp
@@ -99,6 +102,8 @@ def _grade_group(
         g = _given(answers, q.number)
         if g is None:
             marks[q.number] = Mark(q.number, None, False, "blank")
+        elif _over_limit(q, g, rules):
+            marks[q.number] = Mark(q.number, g, False, "over_word_limit")
         else:
             ok = owners[_canonical(q, g, rules)] == q.number and _canonical(q, g, rules) in scored
             marks[q.number] = Mark(q.number, g, ok, "correct" if ok else "wrong")

@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 from m3_helpers import StudentRef, make_class_with_students, publish_test
-from test_attempts import enter, item, save
+from test_attempts import enter, item, save, submit_with
 
 from conftest import Harness
 from npa_api.grading.release import ReleaseFacts, is_released
@@ -61,6 +61,11 @@ def test_scheduled_waits_for_time() -> None:
     assert is_released(sched, at)
 
 
+def test_scheduled_release_waits_for_open_attempts() -> None:
+    assert not is_released(facts(policy="scheduled", release_at=T, open_attempts=1), T)
+    assert is_released(facts(policy="scheduled", release_at=T, open_attempts=0), T)
+
+
 def test_practice_releases_after_each_submit() -> None:
     each = facts(mode="practice", max_attempts=3, own_final_count=1, active_recipients=4, recipients_done=0,
                  open_attempts=3)
@@ -102,7 +107,7 @@ class Setup:
             for i, (n, v) in enumerate(answers, 1):
                 assert save(self.h, student, attempt, token, item(n, v, i)).status == 200
             if submit:
-                assert self.h.call(student.cookie, "POST", f"/api/attempts/{attempt}/submit").status == 200
+                assert submit_with(self.h, student, attempt, token).status == 200
         return attempt
 
     def result(self, cookie: str, attempt: str) -> Any:
@@ -130,7 +135,7 @@ def test_no_result_data_before_release(h: Harness, teacher: str, course_test: st
         others = [
             h.call(s.students[0].cookie, "GET", f"/api/attempts/{attempt}"),
             h.call(s.students[0].cookie, "GET", "/api/my/assignments"),
-            h.call(s.students[0].cookie, "POST", f"/api/attempts/{attempt}/submit"),
+            submit_with(h, s.students[0], attempt, "x"),
         ]
     for r in (res, *others):
         text = json.dumps(r.json)
@@ -177,7 +182,7 @@ def ielts_result(h: Harness, teacher: str, test_type: str) -> tuple[Setup, str]:
         attempt, token = enter(h, s.students[0], s.assign())
         saved = save(h, s.students[0], attempt, token, *[item(n, v, n) for n, v in given])
         assert saved.status == 200
-        assert h.call(s.students[0].cookie, "POST", f"/api/attempts/{attempt}/submit").status == 200
+        assert submit_with(h, s.students[0], attempt, token).status == 200
     return s, attempt
 
 
@@ -218,6 +223,8 @@ def test_teacher_tracking_states_and_late_count(h: Harness, teacher: str, course
     assert got[str(s.students[1].id)]["state"] == "in_progress"
     assert got[str(late_student.id)]["state"] == "submitted"
     assert got[str(late_student.id)]["lateCount"] == 1 and got[str(s.students[0].id)]["lateCount"] == 0
+    assert got[str(late_student.id)]["late"] == [{"number": 2, "value": "too late"}]
+    assert got[str(s.students[0].id)]["late"] == []
     assert done
     not_started = Setup(h, teacher, course_test, 1)
     detail = h.call(teacher, "GET", f"/api/assignments/{not_started.assign()}").json
@@ -278,3 +285,35 @@ def test_trial_flag_is_kept_and_excluded_from_progress(h: Harness, teacher: str,
     normal = Setup(h, teacher, course_test, 1)
     other = normal.do(normal.students[0], normal.assign(), (1, "alpha-secret"))
     assert normal.result(normal.students[0].cookie, other).json["countsForProgress"] is True
+
+
+def test_expired_open_attempt_does_not_hold_release(h: Harness, teacher: str, course_test: str) -> None:
+    s = Setup(h, teacher, course_test, 2)
+    aid = s.assign(releasePolicy="scheduled", releaseAt="2026-11-23T05:00:00Z")
+    first = s.do(s.students[0], aid, (1, "alpha-secret"))
+    s.do(s.students[1], aid, (1, "x"), submit=False)  # never submits; no sweep runs in this test
+    with h.later(hours=27):
+        assert h.call(s.students[0].cookie, "GET", f"/api/attempts/{first}/result").json["released"] is True
+
+
+def test_trial_is_labelled_and_never_counts_for_progress(h: Harness, teacher: str, course_test: str) -> None:
+    s = Setup(h, teacher, course_test, 1)
+    aid = s.assign()
+    h.owner_rows("update assignments set is_trial = true where id = %s", (aid,))
+    attempt = s.do(s.students[0], aid, (1, "alpha-secret"))
+    body = s.result(s.students[0].cookie, attempt).json
+    assert body["isTrial"] is True and body["countsForProgress"] is False
+    assert h.call(teacher, "GET", f"/api/assignments/{aid}").json["isTrial"] is True
+    assert h.call(teacher, "GET", "/api/assignments").json[0]["isTrial"] is True
+
+
+def test_practice_attempt_never_counts_for_progress(h: Harness, teacher: str, course_test: str) -> None:
+    s = Setup(h, teacher, course_test, 1)
+    attempt = s.do(s.students[0], s.assign(mode="practice"), (1, "alpha-secret"))
+    assert s.result(s.students[0].cookie, attempt).json["countsForProgress"] is False
+
+
+def test_unknown_attempt_result_is_404_for_a_student(h: Harness, teacher: str, course_test: str) -> None:
+    s = Setup(h, teacher, course_test, 1)
+    res = h.call(s.students[0].cookie, "GET", "/api/attempts/00000000-0000-4000-8000-0000000000aa/result")
+    assert (res.status, res.json) == (404, {"error": "not_found"})

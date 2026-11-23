@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -37,6 +38,10 @@ class Item(Body):
     value: Annotated[Text, Field(max_length=200)]
     markedForReview: bool  # noqa: N815
     seq: Annotated[int, Field(ge=0, le=2**53)]
+
+
+class SubmitBody(Body):
+    writerToken: Annotated[Text, Field(min_length=1, max_length=200)]  # noqa: N815
 
 
 class SaveBody(Body):
@@ -125,9 +130,12 @@ def _state(ctx: Ctx, identity: Identity, id: UUID) -> dict[str, Any]:
 
 @router.post("/api/attempts/{id}/submit")
 @access(STUDENT)
-def submit(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
+def submit(id: UUID, body: SubmitBody, ctx: CtxDep, identity: IdentityDep) -> Any:
     with with_identity(ctx.pool, identity) as tx, domain_errors():
         tx.execute("select app.attempt_assert_active(%s)", (id,))  # 404 not own, 403 removed
+        held = tx.execute("select writer_token from attempts where id = %s", (id,)).fetchone()
+    if held is None or held["writer_token"] != body.writerToken:
+        raise HttpError(409, "stale_device")
     settle_if_due(ctx, id)
     settle_attempt(ctx, id, source="student")
     state = _state(ctx, identity, id)
@@ -135,12 +143,15 @@ def submit(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
 
 
 def _result_row(ctx: Ctx, identity: Identity, id: UUID) -> dict[str, Any]:
+    cutoff = ctx.now() - timedelta(seconds=GRACE_SECONDS)
     with ctx.pool.connection() as conn:
-        found = conn.execute("select app.attempt_result_row(%s) as row", (id,)).fetchone()
+        found = conn.execute("select app.attempt_result_row(%s, %s) as row", (id, cutoff)).fetchone()
     assert found is not None  # noqa: S101
     row = found["row"]
-    owner = row["studentId"] if identity.role == "student" else row["teacherId"] if row else None
-    if row is None or str(owner) != str(identity.user_id):
+    if row is None:
+        raise HttpError(404, "not_found")
+    owner = row["studentId"] if identity.role == "student" else row["teacherId"]
+    if str(owner) != str(identity.user_id):
         raise HttpError(404, "not_found")
     return dict(row)
 

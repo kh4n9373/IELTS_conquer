@@ -201,7 +201,7 @@ function TeacherAssignments() {
               <Link className="toc-row" to={`/assignments/${row.id}`} viewTransition>
                 <span className="toc-no" aria-hidden="true">{String(i + 1).padStart(2, '0')}</span>
                 <span className="toc-name">
-                  <span>{row.testTitle}</span>
+                  <span>{row.testTitle}{row.isTrial && <> <span className="tag">{t.assignments.trial}</span></>}</span>
                   <span className="muted test-meta">{t.assignments.meta(row.className, dateTime(row.dueAt), row.recipientCount)}</span>
                 </span>
                 <span className="toc-leader" aria-hidden="true" />

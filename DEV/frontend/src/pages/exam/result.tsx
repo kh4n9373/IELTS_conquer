@@ -50,15 +50,17 @@ function Released({ data }: { data: ResultReleased | ResultPreview }) {
   const hasBand = data.band !== undefined;
   const note = !data.released
     ? t.result.teacherView
-    : !data.countsForProgress
-      ? data.attemptNumber > 1 ? t.result.retake : t.result.trial
-      : null;
+    : data.isTrial
+      ? t.result.trial
+      : data.attemptNumber > 1
+        ? t.result.retake
+        : null;
   return (
     <>
       <PageHead
         eyebrow={t.result.title}
         title={data.testTitle}
-        lede={`${t.result.attempt(data.attemptNumber)} · ${t.result.submittedAt(dateTime(data.submittedAt))}`}
+        lede={`${t.result.attempt(data.attemptNumber)} · ${t.result.submittedAt(dateTime(data.submittedAt))}${data.isTrial ? ` · ${t.result.trialLabel}` : ''}`}
       />
       <div className={`res-stats${hasBand ? ' has-band' : ''}`}>
         <div className="res-stat"><strong>{`${data.correct}/${data.total}`}</strong><span>{t.result.correct}</span></div>

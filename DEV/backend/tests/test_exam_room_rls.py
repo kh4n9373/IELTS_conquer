@@ -165,7 +165,7 @@ def test_student_cannot_write_attempts_directly(db: TestDb, w: World, sql: str) 
         "app.attempt_store_grade(gen_random_uuid(), 'submitted', now(), '{}'::jsonb, '[]'::jsonb)",
         "app.attempt_lock_for_grading(gen_random_uuid())",
         "app.attempt_due(now(), 10)",
-        "app.attempt_result_row(gen_random_uuid())",
+        "app.attempt_result_row(gen_random_uuid(), now())",
     ],
 )
 def test_student_and_teacher_cannot_call_grading_functions(db: TestDb, w: World, call: str) -> None:

@@ -120,7 +120,7 @@ def submit(page: Page, attempt: str, correct: int, wrong: int = 0) -> None:
     for i in range(0, len(items), 40):
         body = {"writerToken": token, "items": items[i : i + 40]}
         api(page, "PUT", f"/api/attempts/{attempt}/answers", body)
-    api(page, "POST", f"/api/attempts/{attempt}/submit")
+    api(page, "POST", f"/api/attempts/{attempt}/submit", {"writerToken": token})
 
 
 @pytest.fixture(scope="module")

@@ -6,7 +6,7 @@ from uuid import UUID
 
 import pytest
 from m3_helpers import make_class_with_students, publish_test
-from test_attempts import enter, item, save
+from test_attempts import enter, item, save, submit_with
 
 from conftest import Harness
 from npa_api.grading import settle
@@ -72,9 +72,9 @@ def status(h: Harness, attempt: str) -> str:
 
 
 def test_submit_grades_in_same_transaction(h: Harness, room: Room) -> None:
-    s, attempt, _ = open_attempt(h, room, (1, "alpha"), (2, "wrong"))
+    s, attempt, token = open_attempt(h, room, (1, "alpha"), (2, "wrong"))
     with h.later(hours=2, minutes=10):
-        res = h.call(s.cookie, "POST", f"/api/attempts/{attempt}/submit")
+        res = submit_with(h, s, attempt, token)
     assert res.status == 200 and res.json["status"] == "submitted"
     got = runs(h, attempt)
     assert len(got) == 1 and (got[0]["correct"], got[0]["total"]) == (1, 3)
@@ -83,10 +83,10 @@ def test_submit_grades_in_same_transaction(h: Harness, room: Room) -> None:
 
 
 def test_double_submit_is_idempotent(h: Harness, room: Room) -> None:
-    s, attempt, _ = open_attempt(h, room, (1, "alpha"))
+    s, attempt, token = open_attempt(h, room, (1, "alpha"))
     with h.later(hours=2, minutes=10):
-        first = h.call(s.cookie, "POST", f"/api/attempts/{attempt}/submit")
-        second = h.call(s.cookie, "POST", f"/api/attempts/{attempt}/submit")
+        first = submit_with(h, s, attempt, token)
+        second = submit_with(h, s, attempt, token)
     assert first.status == second.status == 200 and first.json == second.json
     assert len(runs(h, attempt)) == 1
 
@@ -179,12 +179,12 @@ def test_deadline_is_earlier_of_duration_and_due(h: Harness, room: Room) -> None
 
 
 def test_removed_student_saved_answers_still_graded(h: Harness, room: Room) -> None:
-    s, attempt, _ = open_attempt(h, room, (1, "alpha"))
+    s, attempt, token = open_attempt(h, room, (1, "alpha"))
     h.owner_rows("update class_members set removed_at = now() where student_id = %s", (s.id,))
     with h.later(hours=2, minutes=5):
         assert h.call(s.cookie, "POST", f"/api/attempts/{attempt}/claim").status == 403
         assert h.call(s.cookie, "GET", f"/api/attempts/{attempt}").status == 403
-        assert h.call(s.cookie, "POST", f"/api/attempts/{attempt}/submit").status == 403
+        assert submit_with(h, s, attempt, token).status == 403
         assert status(h, attempt) == "in_progress"
     with h.later(hours=3, minutes=5):
         assert sweep_once(ctx(h)) == 1
@@ -227,9 +227,9 @@ def test_one_failing_attempt_does_not_stop_sweep(
 
 
 def test_run_records_key_and_rules_versions(h: Harness, room: Room) -> None:
-    s, attempt, _ = open_attempt(h, room, (1, "alpha"))
+    s, attempt, token = open_attempt(h, room, (1, "alpha"))
     with h.later(hours=2, minutes=10):
-        h.call(s.cookie, "POST", f"/api/attempts/{attempt}/submit")
+        submit_with(h, s, attempt, token)
     run = runs(h, attempt)[0]
     key = h.owner_rows(
         "select id from keys.answer_key_versions where test_id = %s and approved_at is not null "
@@ -241,14 +241,14 @@ def test_run_records_key_and_rules_versions(h: Harness, room: Room) -> None:
 
 
 def test_submit_response_has_no_score(h: Harness, room: Room) -> None:
-    s, attempt, _ = open_attempt(h, room, (1, "alpha"))
+    s, attempt, token = open_attempt(h, room, (1, "alpha"))
     with h.later(hours=2, minutes=10):
-        res = h.call(s.cookie, "POST", f"/api/attempts/{attempt}/submit")
+        res = submit_with(h, s, attempt, token)
     assert set(res.json) == {"status", "finalizedAt"}
     text = str(res.json).lower()
     assert "alpha" not in text and "correct" not in text and "band" not in text
     other = room.student()
-    assert h.call(other.cookie, "POST", f"/api/attempts/{attempt}/submit").status == 404
+    assert submit_with(h, other, attempt, token).status == 404
 
 
 def test_grading_failure_log_has_no_answer_values(

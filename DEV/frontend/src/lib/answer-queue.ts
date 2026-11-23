@@ -138,6 +138,8 @@ export function createAnswerQueue(attemptId: string, send: SendBatch): AnswerQue
     if (state === 'stale' || state === 'rejected') return Promise.resolve();
     inFlight ??= drain().finally(() => {
       inFlight = null;
+      // An edit made during this save was not in it. Nothing else would send it.
+      if (entries.size > 0 && state === 'idle') schedule();
     });
     return inFlight;
   }
@@ -154,6 +156,7 @@ export function createAnswerQueue(attemptId: string, send: SendBatch): AnswerQue
         })
         .finally(() => {
           inFlight = null;
+          if (entries.size > 0 && state === 'idle') schedule();
         });
     }
   }, MAX_WAIT_MS);

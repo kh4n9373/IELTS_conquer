@@ -21,11 +21,20 @@ export type Assignment = {
   releaseAt: string | null;
   cancelledAt: string | null;
   createdAt: string;
+  isTrial: boolean;
   recipientCount: number;
   status: AssignmentStatus;
 };
 export type RecipientState = 'not_started' | 'in_progress' | 'submitted';
-export type Recipient = { id: string; name: string; state: RecipientState; attempts: number; lateCount: number };
+export type Recipient = {
+  id: string;
+  name: string;
+  state: RecipientState;
+  attempts: number;
+  lateCount: number;
+  /** Teacher only: what the student typed after time ran out. Never graded. */
+  late: { number: number; value: string }[];
+};
 export type AssignmentDetail = Assignment & { students: Recipient[] };
 
 export type CreateAssignment = {
@@ -85,6 +94,7 @@ export type ResultReleased = {
   correct: number;
   total: number;
   percent: number;
+  isTrial: boolean;
   countsForProgress: boolean;
   /** Present only for tests with a band table. */
   band?: string;
@@ -116,7 +126,8 @@ export const examApi = {
   pdfUrl: (attemptId: string) => api.get<{ url: string; expiresIn: number }>(`${at(attemptId)}/pdf-url`),
   saveAnswers: (attemptId: string, writerToken: string, items: AnswerItem[]) =>
     api.put<SaveResult>(`${at(attemptId)}/answers`, { writerToken, items }),
-  submit: (attemptId: string) => api.post<{ status: AttemptStatus; finalizedAt: string | null }>(`${at(attemptId)}/submit`),
+  submit: (attemptId: string, writerToken: string) =>
+    api.post<{ status: AttemptStatus; finalizedAt: string | null }>(`${at(attemptId)}/submit`, { writerToken }),
   result: (attemptId: string) => api.get<ResultView>(`${at(attemptId)}/result`),
 };
 

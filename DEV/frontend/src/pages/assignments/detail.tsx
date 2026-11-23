@@ -113,7 +113,7 @@ export function AssignmentDetailPage() {
       <PageHead
         eyebrow={<Link to="/assignments" viewTransition>{t.assignments.back}</Link>}
         title={row?.testTitle ?? t.assignments.teacherTitle}
-        lede={row ? t.assignments.detailMeta(row.className, t.assignments.status[row.status], dateTime(row.dueAt)) : undefined}
+        lede={row ? t.assignments.detailMeta(row.className, t.assignments.status[row.status], dateTime(row.dueAt)) + (row.isTrial ? ` · ${t.assignments.trial}` : '') : undefined}
       >
         {row && (
           <button type="button" className="secondary" disabled={locked || editing} onClick={() => { setSaved(false); setEditing(true); }}>{t.assignments.edit}</button>
@@ -158,7 +158,10 @@ export function AssignmentDetailPage() {
                       <td>{s.name}</td>
                       <td>{stateLabel[s.state]}</td>
                       <td>{s.attempts}/{row.maxAttempts}</td>
-                      <td className="late">{s.lateCount > 0 ? t.assignments.late(s.lateCount) : ''}</td>
+                      <td className="late">
+                        {s.lateCount > 0 && <span>{t.assignments.late(s.lateCount)}</span>}
+                        {s.late.map((l, i) => <span key={i} className="late-item">{t.assignments.lateItem(l.number, l.value)}</span>)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

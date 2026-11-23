@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from fakes import make_pdf
 from m3_helpers import make_class_with_students
-from test_attempts import enter, item, save
+from test_attempts import enter, item, save, submit_with
 
 from conftest import Harness
 
@@ -58,7 +58,7 @@ def take(h: Harness, teacher: str, tid: str, given: dict[int, str]) -> dict[str,
         rows = [item(n, v, i) for i, (n, v) in enumerate(given.items(), 1)]
         saved = save(h, student, attempt, token, *rows)
         assert saved.status == 200
-        assert h.call(student.cookie, "POST", f"/api/attempts/{attempt}/submit").status == 200
+        assert submit_with(h, student, attempt, token).status == 200
     with h.later(hours=2, minutes=30):
         res = h.call(student.cookie, "GET", f"/api/attempts/{attempt}/result")
     assert res.status == 200 and res.json["released"] is True

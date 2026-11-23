@@ -180,6 +180,38 @@ def test_s13_toggle_keeps_typing_and_page(seeded: Browser) -> None:
 
 
 @pytest.mark.e2e
+def test_edit_during_slow_save_is_still_sent(seeded: Browser) -> None:
+    context = seeded.new_context()
+    held: list[Any] = []
+
+    def slow(route: Any) -> None:
+        if route.request.method == "PUT" and not held and "first-edit" in (route.request.post_data or ""):
+            held.append(route)  # the answer request stays open until the test lets it go
+        else:
+            route.continue_()
+
+    context.route("**/api/attempts/*/answers", slow)
+    page = open_room(context)
+    attempt = re.search(r"[0-9a-f-]{36}", page.url)
+    assert attempt
+    field(page, 8).fill("first-edit")
+    while not held:
+        page.wait_for_timeout(100)
+    field(page, 8).fill("second-edit")
+    page.wait_for_timeout(1500)  # its own save timer fires while the first request is open
+    held[0].continue_()
+    expect(page.get_by_role("status").first).to_contain_text("Đã lưu lúc", timeout=20000)
+    for _ in range(100):
+        room = api(page, "GET", f"/api/attempts/{attempt.group()}")
+        saved = {a["number"]: a["value"] for a in room["answers"]}
+        if saved.get(8) == "second-edit":
+            break
+        page.wait_for_timeout(200)
+    assert saved.get(8) == "second-edit"
+    context.close()
+
+
+@pytest.mark.e2e
 def test_answer_panel_follows_the_passage_and_keeps_other_answers(seeded: Browser) -> None:
     context = seeded.new_context(viewport={"width": 1280, "height": 800})
     page = open_room(context)

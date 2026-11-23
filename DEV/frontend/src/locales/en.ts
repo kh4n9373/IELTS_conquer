@@ -294,6 +294,8 @@ export const en: Copy = {
     attemptsCol: 'Attempts',
     note: 'Note',
     late: (n: number) => `${n} late answer(s), not graded`,
+    trial: 'Trial',
+    lateItem: (number: number, value: string) => `Q${number}: ${value}`,
     noStudents: 'This assignment has no recipients.',
   },
   my: {
@@ -357,6 +359,7 @@ export const en: Copy = {
     title: 'Results',
     attempt: (n: number) => `Attempt ${n}`,
     submittedAt: (when: string) => `Submitted ${when}`,
+    trialLabel: 'Trial',
     submittedTitle: 'Submitted',
     expected: (when: string) => `Results expected: ${when}`,
     releaseNote: 'Your teacher releases results when the group has finished or the deadline passes.',

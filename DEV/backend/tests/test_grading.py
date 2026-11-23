@@ -64,6 +64,20 @@ def test_article_counts_before_stripping_under_pilot():
     assert not mark("note_completion", ["river"], "the river", limit=2, rules="standard-1").correct
 
 
+def test_pilot_key_starting_with_article_matches_exactly():
+    assert mark("note_completion", ["the river"], "the river", rules="pilot-1").correct
+
+
+def test_group_applies_word_limit_and_article_rule():
+    qs = [GradableQuestion(n, "note_completion", 1, 1, a) for n, a in ((1, ("river",)), (2, ("lake",)))]
+    marks = {m.number: m for m in grade(qs, {1: "the river", 2: "big lake"}, "pilot-1")}
+    assert marks[2].reason == "over_word_limit"
+    assert not marks[2].correct
+    assert marks[1].reason == "over_word_limit"  # "the river" is two words against a limit of 1
+    qs2 = [GradableQuestion(n, "note_completion", 2, 1, a) for n, a in ((1, ("river",)), (2, ("lake",)))]
+    assert all(m.correct for m in grade(qs2, {1: "the river", 2: "the lake"}, "pilot-1"))
+
+
 def test_only_one_leading_article_is_stripped():
     assert not mark("note_completion", ["river"], "the the river", limit=3, rules="pilot-1").correct
 
@@ -104,7 +118,7 @@ def test_same_input_same_output():
 
 @pytest.mark.parametrize(
     "correct,band",
-    [(40, "9.0"), (37, "8.5"), (35, "8.0"), (33, "7.5"), (30, "7.0"), (27, "6.5"),
+    [(40, "9.0"), (39, "9.0"), (38, "8.5"), (37, "8.5"), (35, "8.0"), (33, "7.5"), (30, "7.0"), (27, "6.5"),
      (23, "6.0"), (19, "5.5"), (15, "5.0"), (13, "4.5"), (10, "4.0"), (9, "below_4.0"), (0, "below_4.0")],
 )
 def test_band_table(correct, band):

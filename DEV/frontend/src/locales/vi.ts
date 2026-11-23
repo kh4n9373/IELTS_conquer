@@ -295,6 +295,8 @@ export const vi = {
     attemptsCol: 'Số lần',
     note: 'Ghi chú',
     late: (n: number) => `${n} câu đến trễ, không chấm`,
+    trial: 'Thi thử',
+    lateItem: (number: number, value: string) => `Câu ${number}: ${value}`,
     noStudents: 'Bài giao này chưa có người nhận.',
   },
   my: {
@@ -358,6 +360,7 @@ export const vi = {
     title: 'Kết quả',
     attempt: (n: number) => `Lần làm ${n}`,
     submittedAt: (when: string) => `Nộp lúc ${when}`,
+    trialLabel: 'Thi thử',
     submittedTitle: 'Đã nộp bài',
     expected: (when: string) => `Dự kiến có kết quả: ${when}`,
     releaseNote: 'Giáo viên công bố khi cả nhóm đã nộp hoặc khi hết hạn.',
