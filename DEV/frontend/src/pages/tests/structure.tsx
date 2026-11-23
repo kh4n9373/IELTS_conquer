@@ -107,10 +107,6 @@ export function StructurePage() {
       return true;
     },
   });
-  const retry = useMutation({
-    mutationFn: () => testsApi.retryOcr(test.id),
-    onSuccess: () => client.invalidateQueries({ queryKey: detailKey(test.id) }),
-  });
 
   const edit = (change: (list: DraftSection[]) => DraftSection[]) => {
     setDrafts(change);
@@ -144,9 +140,9 @@ export function StructurePage() {
     if (dirty && !locked && !(await save.mutateAsync().catch(() => false))) return;
     navigate(`/tests/${test.id}/key`);
   };
-  const chip = ocr && (
+  const chip = ocr ? (
     <span className={`tag${ocr.state === 'failed' ? ' tag-bad' : ocr.state === 'done' ? ' tag-live' : ''}`}>{t.tests.ocr[ocr.state]}</span>
-  );
+  ) : test.studentPdf && <span className="tag">{t.tests.ocr.notSent}</span>;
 
   return (
     <div className="workbench">
@@ -157,8 +153,6 @@ export function StructurePage() {
         footer={ocr?.state === 'failed' && (
           <div className="ocr-failed" role="status">
             <span>{t.tests.ocr.failedHelp}</span>
-            <button type="button" className="secondary" onClick={() => retry.mutate()} disabled={retry.isPending || test.status === 'archived'}>{t.tests.ocr.retry}</button>
-            <ErrorAlert error={retry.error} />
           </div>
         )}
       />

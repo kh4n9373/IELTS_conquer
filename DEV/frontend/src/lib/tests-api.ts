@@ -93,7 +93,7 @@ export type KeyData = {
 };
 /** Save responses carry no file identity, so they must never replace the data from `getKey`. */
 export type SavedKey = Pick<KeyData, 'version' | 'approvedAt' | 'items'>;
-export type ImportCounts = { filled: number; flagged: number; kept: number; unmatched: number };
+export type ImportCounts = { filled: number; flagged: number; kept: number; unmatched: number; conflicts: number[] };
 
 export type StructureSection = {
   title: string;
@@ -118,14 +118,14 @@ export const testsApi = {
   readiness: (id: string) => api.get<{ ready: boolean; blockers: string[] }>(`${base(id)}/readiness`),
   uploadPdf: (id: string, file: File) => api.upload<{ pageCount: number; hasTextLayer: boolean }>(`${base(id)}/pdf`, file),
   pdfUrl: (id: string) => api.get<{ url: string; expiresIn: number }>(`${base(id)}/pdf-url`),
-  retryOcr: (id: string) => api.post<JobState>(`${base(id)}/ocr`),
   publish: (id: string) => api.post<TestSummary>(`${base(id)}/publish`),
   archive: (id: string) => api.post<TestSummary>(`${base(id)}/archive`),
   // Answer routes. Only the key editor may call these: preview must never import them.
   getKey: (id: string) => api.get<KeyData>(`${base(id)}/key`),
   putKeyItems: (id: string, body: { items: { number: number; answers: string[] }[] } | { pasted: string }) =>
     api.put<SavedKey>(`${base(id)}/key/items`, body),
-  reviewKey: (id: string, numbers: number[]) => api.post<SavedKey>(`${base(id)}/key/review`, { numbers }),
+  /** Sends the answers on screen: the server refuses the review if the stored ones differ. */
+  reviewKey: (id: string, items: { number: number; answers: string[] }[]) => api.post<SavedKey>(`${base(id)}/key/review`, { items }),
   keySourceUrl: (id: string, revision: string) =>
     api.get<{ url: string; expiresIn: number }>(`${base(id)}/key-source-url?revision=${encodeURIComponent(revision)}`),
   uploadKeySource: (id: string, file: File) => api.upload<KeySourceInfo>(`${base(id)}/key-source`, file),

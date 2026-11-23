@@ -14,6 +14,9 @@ const MAX_HEIGHT = 240;
 const MAX_ZOOM = 5;
 /** Card padding and the crop border, which the drawing must fit inside. */
 const CARD_INSET = 24;
+/** Automatic tries after the first failure. After these the card offers its retry button. */
+const AUTO_RETRIES = 2;
+const RETRY_MS = 800;
 
 /** Rows stored before boxes became page fractions hold pixels, so they count as "no box". */
 function usableBox(bbox: number[] | null): Box | null {
@@ -40,15 +43,28 @@ type Props = {
 export function KeyRegion({ testId, revision, number, page, bbox, onFileChanged }: Props) {
   const { t } = useI18n();
   const wanted = number !== null && page !== null && revision !== null;
+  const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
+  const opened = doc !== null;
   const url = useQuery({
     queryKey: ['key-source-url', testId, revision],
     queryFn: () => testsApi.keySourceUrl(testId, revision as string),
-    enabled: wanted,
-    staleTime: 60_000,
+    // The whole file is read once, so an open document never needs a newer signed URL.
+    enabled: wanted && !opened,
+    staleTime: Infinity,
     gcTime: 0,
+    retry: (count, error) => count < AUTO_RETRIES && !(error instanceof ApiError && error.code === 'key_source_changed'),
+    retryDelay: RETRY_MS,
   });
   const address = url.data?.url;
-  const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
+  const latestAddress = useRef(address);
+  latestAddress.current = address;
+  const refetchUrl = useRef(url.refetch);
+  refetchUrl.current = url.refetch;
+  const hasAddress = Boolean(address);
+  const [openRun, setOpenRun] = useState(0);
+  const [drawRun, setDrawRun] = useState(0);
+  const openTries = useRef(0);
+  const drawTries = useRef<{ target: string; count: number } | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [drawn, setDrawn] = useState<string | null>(null);
   const [drawFailed, setDrawFailed] = useState<string | null>(null);
@@ -67,24 +83,37 @@ export function KeyRegion({ testId, revision, number, page, bbox, onFileChanged 
   const target = wanted ? `${number}:${page}:${box?.join(',') ?? 'page'}` : null;
 
   useEffect(() => {
-    if (!address) return;
+    const current = latestAddress.current;
+    if (!hasAddress || !current) return;
     let cancelled = false;
-    let opened: PDFDocumentProxy | null = null;
+    let loaded: PDFDocumentProxy | null = null;
+    let timer: number | undefined;
     setLoadFailed(false);
-    openPdf(address).then(
+    openPdf(current).then(
       (next) => {
         if (cancelled) return void next.destroy();
-        opened = next;
+        loaded = next;
+        openTries.current = 0;
         setDoc(next);
       },
-      () => !cancelled && setLoadFailed(true),
+      () => {
+        if (cancelled) return;
+        if (openTries.current >= AUTO_RETRIES) return setLoadFailed(true);
+        openTries.current += 1;
+        // The address may have expired, so each new try asks for a fresh one.
+        timer = window.setTimeout(() => {
+          void refetchUrl.current().then(() => !cancelled && setOpenRun((n) => n + 1));
+        }, RETRY_MS);
+      },
     );
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
       setDoc(null);
-      void opened?.destroy();
+      void loaded?.destroy();
     };
-  }, [address]);
+    // One open per file (this card is remounted per revision). A newer URL alone must not reopen it.
+  }, [hasAddress, openRun]);
 
   useEffect(() => {
     const el = card.current;
@@ -102,7 +131,14 @@ export function KeyRegion({ testId, revision, number, page, bbox, onFileChanged 
     if (!doc || !target || page === null || number === null || width === 0) return;
     let task: RenderTask | undefined;
     let cancelled = false;
-    const fail = () => !cancelled && setDrawFailed(target);
+    let timer: number | undefined;
+    const fail = () => {
+      if (cancelled) return;
+      const tries = drawTries.current?.target === target ? drawTries.current.count : 0;
+      if (tries >= AUTO_RETRIES) return setDrawFailed(target);
+      drawTries.current = { target, count: tries + 1 };
+      timer = window.setTimeout(() => setDrawRun((n) => n + 1), RETRY_MS);
+    };
     doc.getPage(page).then((p) => {
       if (cancelled) return;
       const base = p.getViewport({ scale: 1 });
@@ -123,17 +159,27 @@ export function KeyRegion({ testId, revision, number, page, bbox, onFileChanged 
       task.promise.then(() => {
         if (cancelled) return;
         host.current?.replaceChildren(canvas);
+        drawTries.current = null;
         setDrawn(target);
       }, fail);
     }, fail);
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
       task?.cancel();
     };
     // `target` already stands for the row, page and box.
-  }, [doc, target, width]);
+  }, [doc, target, width, drawRun]);
 
-  const failed = wanted && (url.isError || loadFailed || drawFailed === target);
+  const failed = wanted && ((url.isError && !doc) || loadFailed || drawFailed === target);
+  const retry = () => {
+    openTries.current = 0;
+    drawTries.current = null;
+    setDrawFailed(null);
+    if (doc) return setDrawRun((n) => n + 1);
+    setLoadFailed(false);
+    void url.refetch().then(() => setOpenRun((n) => n + 1));
+  };
   const ready = wanted && !failed && drawn === target;
   let note: string | null = null;
   if (number === null) note = t.tests.key.regionPick;
@@ -147,6 +193,7 @@ export function KeyRegion({ testId, revision, number, page, bbox, onFileChanged 
       <strong>{number === null ? t.tests.key.region : t.tests.key.regionFor(number)}</strong>
       <div className="key-crop" ref={host} hidden={!ready} />
       {note && <p role="status">{note}</p>}
+      {failed && <button type="button" className="secondary" onClick={retry}>{t.tests.key.regionRetry}</button>}
     </div>
   );
 }

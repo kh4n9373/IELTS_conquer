@@ -1,3 +1,5 @@
+type ImportSummary = { filled: number; flagged: number; kept: number; unmatched: number; conflicts: number[] };
+
 import type { Copy } from './vi';
 
 /** English copy. The `Copy` type makes a missing key a compile error. */
@@ -53,6 +55,7 @@ export const en: Copy = {
     key_source_changed: 'The answer file just changed. Try again.',
     ocr_in_progress: 'OCR is running. Wait for it to finish.',
     ocr_not_retryable: 'OCR has not failed, so there is nothing to run again.',
+    key_changed: 'These answers just changed. Check them again, then review.',
     test_not_published: 'The test is not published.',
     not_ready: 'The test is not ready to publish. Check the items marked not done.',
     fallback: 'Something went wrong. Please try again.',
@@ -280,7 +283,7 @@ export const en: Copy = {
       pdfChange: 'Choose another file to replace it',
       pdfNone: 'No PDF yet',
       uploadHelp: 'Remove the password or export the PDF again, then upload it. Limit: 30 MB and 100 pages.',
-      ocrNotice: 'After upload, the test PDF is sent to the PaddleOCR service to extract text for AI. The test name and student data are not sent.',
+      ocrNotice: 'The test PDF stays on our system and is not sent to OCR.',
       working: 'Saving…',
       saved: 'Test details saved',
       save: 'Save details',
@@ -300,8 +303,8 @@ export const en: Copy = {
       running: 'OCR running',
       done: 'OCR done',
       failed: 'OCR failed',
+      notSent: 'Not sent to OCR',
       failedHelp: 'OCR did not finish. You can still publish and run the test. Only the later AI step needs it.',
-      retry: 'Run OCR again',
     },
     structure: {
       area: 'Test structure',
@@ -367,8 +370,8 @@ export const en: Copy = {
       pasted: (n: number) => `Imported ${n} answers`,
       file: 'Upload answer PDF or image',
       fileNote: 'PDFs with text are read on our server. Images go to OCR only when you press scan, and results are always drafts you must review.',
-      imported: (c: { filled: number; flagged: number; kept: number; unmatched: number }) =>
-        `Filled ${c.filled}, flagged ${c.flagged}, kept ${c.kept}, unmatched ${c.unmatched}.`,
+      imported: (c: ImportSummary) =>
+        `Filled ${c.filled}, flagged ${c.flagged}, kept ${c.kept}, unmatched ${c.unmatched}.${c.conflicts.length ? ` Reviewed answers that differ from this file: ${c.conflicts.join(', ')}.` : ''}`,
       region: 'Source region',
       regionFor: (n: number) => `Source region for question ${n}`,
       regionPick: 'Select a question to compare it with the key file.',
@@ -376,10 +379,12 @@ export const en: Copy = {
       regionWhole: 'The exact position is unknown, so the whole page is shown.',
       regionLoading: 'Loading the source region',
       regionFailed: 'The source region could not be loaded. The answer table still works.',
+      regionRetry: 'Try again',
       regionImage: (n: number) => `Key file excerpt for question ${n}`,
       scanReady: 'This file is an image or a PDF without text. Press scan to send it for recognition.',
       scan: 'Scan answers',
       scanState: { queued: 'Waiting to scan the answers', running: 'Scanning the answers', done: 'Scan finished. The result is a draft, so check each answer.', failed: 'The scan did not work. You can still type answers or paste a list as usual.' },
+      scanNoAnswers: 'The scan found no answers for this test. You can type answers or paste a list.',
       retryScan: 'Scan again',
       notEditable: 'The answers are locked.',
     },

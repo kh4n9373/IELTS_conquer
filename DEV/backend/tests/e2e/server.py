@@ -61,9 +61,9 @@ try:
         body = await request.json()
         with db.owner_pool.connection() as conn:
             conn.execute(
-                """update ocr_jobs set state = 'failed', error_code = 'provider_error'
-                   where asset_id in (select id from test_assets
-                                      where test_id = %s and kind = 'student_pdf')""",
+                """insert into ocr_jobs (asset_id, teacher_id, state, attempts, error_code)
+                   select id, teacher_id, 'failed', 1, 'provider_error' from test_assets
+                   where test_id = %s and kind = 'student_pdf'""",
                 (body["testId"],),
             )
         return {"ok": True}

@@ -8,7 +8,9 @@ import re
 
 import pytest
 from fakes import make_jbig2_pdf, make_jpx_pdf, make_pdf
-from playwright.sync_api import Page, expect, sync_playwright
+from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import Page, Route, expect, sync_playwright
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from test_m1 import WEB_URL, login, provision_teacher
 from test_m1 import servers as servers  # noqa: PLC0414  (reused fixture: API with in-memory files + web dev server)
 
@@ -50,11 +52,11 @@ def test_teacher_authors_and_publishes_a_test(servers: None) -> None:  # noqa: P
         test_id = re.search(r"/tests/([0-9a-f-]{36})/structure$", teacher.url)
         assert test_id is not None
 
-        # The PDF is drawn by PDF.js, and OCR waits in the queue (no worker runs here).
+        # The PDF is drawn by PDF.js. Uploading queues nothing, and the page says so.
         expect(teacher.get_by_text(f"Trang 1 / {PDF_PAGES}")).to_be_visible()
         expect(teacher.locator("canvas").first).to_be_visible()
         assert teacher.evaluate("document.querySelector('canvas').width > 0")
-        expect(teacher.get_by_text("OCR đang chờ")).to_be_visible()
+        expect(teacher.get_by_text("Chưa gửi OCR")).to_be_visible()
 
         # Publishing is blocked while the structure and key are missing.
         teacher.get_by_role("link", name="4. Xuất bản").click()
@@ -127,11 +129,10 @@ def test_teacher_authors_and_publishes_a_test(servers: None) -> None:  # noqa: P
         teacher.get_by_role("button", name="Xuất bản đề").click()
         expect(teacher.get_by_text("Đề đã xuất bản")).to_be_visible()
 
-        # Retry still works on a published test.
+        # A student PDF has no way to start OCR in M2, even after a failed row.
         teacher.get_by_role("link", name="2. Cấu trúc").click()
         expect(teacher.get_by_text("OCR lỗi")).to_be_visible()
-        teacher.get_by_role("button", name="Chạy lại OCR").click()
-        expect(teacher.get_by_text("OCR đang chờ")).to_be_visible()
+        expect(teacher.get_by_role("button", name="Chạy lại OCR")).to_have_count(0)
 
         # Preview creates no attempt and loads no answers: no /key request, no mutation.
         requests.clear()
@@ -178,6 +179,15 @@ CROP_DARK_PIXELS = DARK_PIXELS.replace(
 )
 
 
+def wait_for_crop(page: Page, timeout: int) -> None:
+    """On failure, reports what the card told the teacher."""
+    try:
+        page.wait_for_function(f"({CROP_DARK_PIXELS})() > 5", timeout=timeout)
+    except PlaywrightTimeoutError as err:
+        note = page.locator(".key-region").inner_text()
+        raise AssertionError(f"Crop not drawn. Card says: {note!r}") from err
+
+
 @pytest.mark.e2e
 def test_key_row_shows_its_source_region(servers: None) -> None:
     with sync_playwright() as p:
@@ -215,7 +225,7 @@ def test_key_row_shows_its_source_region(servers: None) -> None:
 
         imported.focus()
         expect(card).to_contain_text("Vùng gốc của câu 1")
-        teacher.wait_for_function(f"({CROP_DARK_PIXELS})() > 5", timeout=15_000)
+        wait_for_crop(teacher, 15_000)
 
         # Another tab replaces the file. This file's answer sits lower on the page, where the first file
         # is blank, so drawing the new box on the old document would show nothing.
@@ -232,7 +242,7 @@ def test_key_row_shows_its_source_region(servers: None) -> None:
         other.blur()
         expect(imported).to_have_value("E")
         imported.focus()
-        teacher.wait_for_function(f"({CROP_DARK_PIXELS})() > 5", timeout=5_000)
+        wait_for_crop(teacher, 5_000)
 
         # A typed answer has no source, and the previous crop must be gone.
         typed = teacher.get_by_label("Đáp án câu 2")
@@ -246,7 +256,7 @@ def test_key_row_shows_its_source_region(servers: None) -> None:
         # After a reload the page still knows the source file.
         teacher.reload()
         teacher.get_by_label("Đáp án câu 1").focus()
-        teacher.wait_for_function(f"({CROP_DARK_PIXELS})() > 5", timeout=15_000)
+        wait_for_crop(teacher, 15_000)
 
         # A replaced file on a turned, cropped page: a box in the wrong frame would draw blank paper.
         turned = make_pdf(text="1. D", page_extra="/Rotate 90 /CropBox [10 50 110 150]")
@@ -255,7 +265,7 @@ def test_key_row_shows_its_source_region(servers: None) -> None:
         )
         expect(teacher.get_by_label("Đáp án câu 1")).to_have_value("D")
         teacher.get_by_label("Đáp án câu 1").focus()
-        teacher.wait_for_function(f"({CROP_DARK_PIXELS})() > 5", timeout=15_000)
+        wait_for_crop(teacher, 15_000)
 
         # A scan-only file clears the regions and keeps its scan button after a reload.
         teacher.get_by_label("Tải PDF hoặc ảnh đáp án").set_input_files(
@@ -270,6 +280,56 @@ def test_key_row_shows_its_source_region(servers: None) -> None:
         expect(card.locator("canvas")).to_have_count(0)
 
         assert errors == []
+        browser.close()
+
+
+@pytest.mark.e2e
+def test_failed_crop_recovers_with_the_retry_button(servers: None) -> None:
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="chrome", headless=True)
+        admin = browser.new_context().new_page()
+        login(admin, "admin@test.local", "admin-password-123")
+        teacher = provision_teacher(browser, admin, "Cô Hoa", "hoa@test.local")
+
+        teacher.goto(f"{WEB_URL}/tests/new")
+        teacher.get_by_label("Tên đề").fill("Thử lại vùng gốc")
+        teacher.get_by_label("PDF đề thi").set_input_files(
+            {"name": "exam.pdf", "mimeType": "application/pdf", "buffer": make_pdf(pages=2, text="Invented")}
+        )
+        teacher.get_by_role("button", name="Tiếp tục").click()
+        expect(teacher.get_by_role("heading", name="Khai báo cấu trúc")).to_be_visible()
+        teacher.get_by_role("button", name="Thêm passage").click()
+        group = teacher.get_by_role("group", name="Passage 1")
+        group.get_by_label("Trang bài đọc").fill("1")
+        group.get_by_label("Trang câu hỏi").fill("2")
+        group.get_by_role("button", name="Thêm dải câu").click()
+        pick_range(teacher, "Passage 1", 1, 1, 1, "multiple_choice")
+        teacher.get_by_role("button", name="Lưu cấu trúc").click()
+        expect(teacher.get_by_text("Đã lưu cấu trúc")).to_be_visible()
+        teacher.get_by_role("link", name="3. Đáp án").click()
+        teacher.get_by_label("Tải PDF hoặc ảnh đáp án").set_input_files(
+            {"name": "key.pdf", "mimeType": "application/pdf", "buffer": make_pdf(text="1. C")}
+        )
+        answer = teacher.get_by_label("Đáp án câu 1")
+        expect(answer).to_have_value("C")
+
+        def refuse(route: Route) -> None:
+            try:
+                route.abort()
+            except PlaywrightError:
+                pass
+
+        teacher.route("**/api/e2e-files/**", refuse)
+        answer.focus()
+        card = teacher.locator(".key-region")
+        retry = card.get_by_role("button", name="Thử lại")
+        expect(retry).to_be_visible(timeout=15_000)
+        expect(card).to_contain_text("Không tải được vùng gốc")
+
+        teacher.unroute("**/api/e2e-files/**")
+        retry.click()
+        wait_for_crop(teacher, 15_000)
+        expect(retry).to_have_count(0)
         browser.close()
 
 

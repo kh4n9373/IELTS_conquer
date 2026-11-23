@@ -1,3 +1,5 @@
+type ImportSummary = { filled: number; flagged: number; kept: number; unmatched: number; conflicts: number[] };
+
 /**
  * Vietnamese copy. Marketing and empty states use a casual Gen Z voice.
  * Errors, consent and legal text stay plain, because clarity comes first there.
@@ -53,6 +55,7 @@ export const vi = {
     key_has_text_layer: 'Tệp này có chữ nên đọc trực tiếp, không cần quét.',
     key_source_changed: 'Tệp đáp án vừa đổi. Hãy thử lại.',
     ocr_in_progress: 'OCR đang chạy. Hãy chờ xong.',
+    key_changed: 'Đáp án vừa thay đổi. Hãy xem lại rồi duyệt.',
     ocr_not_retryable: 'OCR chưa lỗi nên chưa cần chạy lại.',
     test_not_published: 'Đề chưa xuất bản.',
     not_ready: 'Đề chưa đủ điều kiện xuất bản. Hãy xem các mục chưa đạt.',
@@ -281,7 +284,7 @@ export const vi = {
       pdfChange: 'Chọn tệp khác để thay',
       pdfNone: 'Chưa có PDF',
       uploadHelp: 'Hãy gỡ mật khẩu hoặc xuất lại PDF rồi tải lên. Giới hạn 30 MB và 100 trang.',
-      ocrNotice: 'Sau khi tải lên, PDF đề được gửi tới dịch vụ OCR PaddleOCR để nhận dạng chữ cho AI. Tên đề và dữ liệu học viên không được gửi.',
+      ocrNotice: 'PDF đề được giữ trên hệ thống của chúng tôi và không gửi đi OCR.',
       working: 'Đang lưu…',
       saved: 'Đã lưu thông tin đề',
       save: 'Lưu thông tin',
@@ -301,8 +304,8 @@ export const vi = {
       running: 'OCR đang chạy',
       done: 'OCR xong',
       failed: 'OCR lỗi',
+      notSent: 'Chưa gửi OCR',
       failedHelp: 'OCR chưa chạy được. Bạn vẫn xuất bản và thi bình thường, chỉ AI ở bước sau cần phần này.',
-      retry: 'Chạy lại OCR',
     },
     structure: {
       area: 'Cấu trúc đề',
@@ -368,8 +371,8 @@ export const vi = {
       pasted: (n: number) => `Đã nhập ${n} câu`,
       file: 'Tải PDF hoặc ảnh đáp án',
       fileNote: 'PDF có chữ được đọc ngay trên server. Ảnh chỉ gửi đi OCR khi bạn bấm quét, và kết quả luôn là bản nháp cần duyệt.',
-      imported: (c: { filled: number; flagged: number; kept: number; unmatched: number }) =>
-        `Đã điền ${c.filled} câu, gắn cờ ${c.flagged}, giữ nguyên ${c.kept}, không khớp ${c.unmatched}.`,
+      imported: (c: ImportSummary) =>
+        `Đã điền ${c.filled} câu, gắn cờ ${c.flagged}, giữ nguyên ${c.kept}, không khớp ${c.unmatched}.${c.conflicts.length ? ` Câu đã duyệt khác với tệp này: ${c.conflicts.join(', ')}.` : ''}`,
       region: 'Vùng gốc',
       regionFor: (n: number) => `Vùng gốc của câu ${n}`,
       regionPick: 'Chọn một câu để so với tệp đáp án.',
@@ -377,10 +380,12 @@ export const vi = {
       regionWhole: 'Chưa rõ vị trí chính xác nên đang hiện cả trang.',
       regionLoading: 'Đang tải vùng gốc',
       regionFailed: 'Không tải được vùng gốc. Bảng đáp án vẫn dùng bình thường.',
+      regionRetry: 'Thử lại',
       regionImage: (n: number) => `Phần tệp đáp án của câu ${n}`,
       scanReady: 'Tệp này là ảnh hoặc PDF không có chữ. Bấm quét để gửi đi nhận dạng.',
       scan: 'Quét đáp án',
       scanState: { queued: 'Đang chờ quét đáp án', running: 'Đang quét đáp án', done: 'Quét xong, kết quả là bản nháp. Hãy xem lại từng câu.', failed: 'Quét chưa được. Bạn vẫn nhập đáp án tay hoặc dán danh sách như bình thường.' },
+      scanNoAnswers: 'Bản quét không có đáp án nào cho đề này. Bạn có thể nhập tay hoặc dán danh sách.',
       retryScan: 'Quét lại',
       notEditable: 'Đáp án đã khóa.',
     },
