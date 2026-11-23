@@ -52,9 +52,10 @@ Caddy ──► API (FastAPI) ───────────► PostgreSQL (R
 ### M2 storage, worker and OCR
 
 - **Storage:** exam PDFs and key files are kept in private S3-compatible storage. Development uses local MinIO. The browser reads them through signed URLs that last 5 minutes.
-- **Worker queue:** uploading a student PDF adds a `queued` row to `ocr_jobs`. A teacher's key scan adds one for the key file. `npa-worker` claims rows with a lease and retries failures. Procrastinate is not used in M2.
+- **Worker queue:** uploading a file never adds an `ocr_jobs` row. A teacher's **Scan** on a key file with no text layer records `ocr_approved_at` and `ocr_approved_by` on that asset, writes an audit row and adds the job. `npa-worker` claims rows with a lease and retries failures. Procrastinate is not used in M2.
+- **OCR approval:** `app.ocr_claim` (migration `0004`) refuses any job whose asset has no approval or whose test is archived, so a stray or older queued row can never be sent. Approval belongs to one stored file: a replacement is a new asset row with no approval. **Student PDFs have no way to start OCR in M2**, and `POST /api/tests/{id}/ocr` refuses an unapproved file.
 - **OCR provider:** the worker sends the file to the PaddleOCR hosted API. An OCR failure does not block authoring or publishing.
-- **When files leave the machine:** only when a worker runs. The API and the web app never call PaddleOCR. A queued row is therefore a pending transfer: any worker started later with the provider token will send that file out.
+- **When files leave the machine:** only when a worker runs and only for an approved asset. The API and the web app never call PaddleOCR. A queued row on an approved asset is a pending transfer: any worker started later with the provider token will send that file out.
 - **Unconfirmed (lawyer list):** PaddleOCR's retention, training use and processing location. Real exam content must not be sent until these are answered.
 - **Real pilot status:** the real pilot has **not** been sent to OCR. It exists only as a local draft, its queued OCR row was removed, and its answers are unreviewed. A teacher still has to check the page mapping and review the answers.
 
