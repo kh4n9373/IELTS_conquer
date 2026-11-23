@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
@@ -218,6 +219,31 @@ def update_test(id: UUID, body: PatchTestBody, ctx: CtxDep, identity: IdentityDe
         return row
 
 
+def sync_key_items(
+    tx: Conn,
+    test_id: UUID,
+    old: Mapping[int, tuple[str, int | None]],
+    new: Mapping[int, tuple[str, int | None]],
+) -> tuple[int, int]:
+    """Keeps a draft key in step with the structure: drops removed questions, un-reviews changed ones."""
+    version = tx.execute(
+        "select id from keys.answer_key_versions where test_id = %s order by version desc limit 1", (test_id,)
+    ).fetchone()
+    if version is None:
+        return 0, 0
+    removed = tx.execute(
+        "delete from keys.answer_key_items where version_id = %s and not (question_number = any(%s))",
+        (version["id"], list(new)),
+    ).rowcount
+    changed = [n for n, shape in old.items() if n in new and new[n] != shape]
+    cleared = tx.execute(
+        """update keys.answer_key_items set reviewed_at = null, reviewed_by = null
+           where version_id = %s and question_number = any(%s) and reviewed_at is not null""",
+        (version["id"], changed),
+    ).rowcount
+    return removed, cleared
+
+
 @router.put("/api/tests/{id}/structure")
 @access(TEACHER)
 def put_structure(id: UUID, body: StructureBody, ctx: CtxDep, identity: IdentityDep) -> Any:
@@ -228,6 +254,12 @@ def put_structure(id: UUID, body: StructureBody, ctx: CtxDep, identity: Identity
         # The test is locked first: inserting before this would let unique-key errors
         # reveal another tenant's structure.
         test = lock_test(tx, id, draft=True)
+        old_shape = {
+            q["number"]: (q["question_type"], q["word_limit"])
+            for q in tx.execute(
+                "select number, question_type, word_limit from questions where test_id = %s", (id,)
+            ).fetchall()
+        }
         tx.execute("delete from sections where test_id = %s", (id,))
         for position, section in enumerate(body.sections, start=1):
             created = tx.execute(
@@ -255,41 +287,58 @@ def put_structure(id: UUID, body: StructureBody, ctx: CtxDep, identity: Identity
                            values (%s, %s, %s, %s, %s, %s)""",
                         (id, test["teacher_id"], created["id"], number, r.questionType, r.wordLimit),
                     )
+        new_shape = {
+            n: (r.questionType, r.wordLimit)
+            for s in body.sections
+            for r in s.ranges
+            for n in range(r.from_, r.to + 1)
+        }
+        removed, unreviewed = sync_key_items(tx, id, old_shape, new_shape)
         write_audit(
             tx,
             action="test.structure",
             entity="test",
             entity_id=id,
-            after={"sections": len(body.sections), "questions": len(numbers)},
+            after={
+                "sections": len(body.sections),
+                "questions": len(numbers),
+                "keyItemsRemoved": removed,
+                "keyReviewsCleared": unreviewed,
+            },
         )
         return detail(tx, test)
+
+
+def blockers_of(tx: Conn, test_id: UUID) -> list[str]:
+    """Publish blockers for a test, read inside the caller's transaction."""
+    test = tx.execute("select test_type, duration_minutes from tests where id = %s", (test_id,)).fetchone()
+    if test is None:
+        raise not_found()
+    assets = tx.execute("select kind, page_count from test_assets where test_id = %s", (test_id,)).fetchall()
+    sections = tx.execute(
+        "select passage_pages, question_pages from sections where test_id = %s", (test_id,)
+    ).fetchall()
+    questions = tx.execute(
+        "select number, question_type from questions where test_id = %s", (test_id,)
+    ).fetchall()
+    version = tx.execute(
+        "select id from keys.answer_key_versions where test_id = %s order by version desc limit 1", (test_id,)
+    ).fetchone()
+    items = (
+        tx.execute(
+            """select question_number, answers, flagged, reviewed_at
+               from keys.answer_key_items where version_id = %s""",
+            (version["id"],),
+        ).fetchall()
+        if version is not None
+        else []
+    )
+    return readiness(test, assets, sections, questions, items)
 
 
 @router.get("/api/tests/{id}/readiness")
 @access(TEACHER)
 def get_readiness(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
     with with_identity(ctx.pool, identity) as tx:
-        test = tx.execute("select test_type, duration_minutes from tests where id = %s", (id,)).fetchone()
-        if test is None:
-            raise not_found()
-        assets = tx.execute("select kind, page_count from test_assets where test_id = %s", (id,)).fetchall()
-        sections = tx.execute(
-            "select passage_pages, question_pages from sections where test_id = %s", (id,)
-        ).fetchall()
-        questions = tx.execute(
-            "select number, question_type from questions where test_id = %s", (id,)
-        ).fetchall()
-        version = tx.execute(
-            "select id from keys.answer_key_versions where test_id = %s order by version desc limit 1", (id,)
-        ).fetchone()
-        items = (
-            tx.execute(
-                """select question_number, answers, flagged, reviewed_at
-                   from keys.answer_key_items where version_id = %s""",
-                (version["id"],),
-            ).fetchall()
-            if version is not None
-            else []
-        )
-        blockers = readiness(test, assets, sections, questions, items)
+        blockers = blockers_of(tx, id)
         return {"ready": not blockers, "blockers": blockers}

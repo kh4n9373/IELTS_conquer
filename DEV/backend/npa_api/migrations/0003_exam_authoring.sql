@@ -137,6 +137,41 @@ create trigger answer_key_versions_keep_approved before delete on keys.answer_ke
   for each row execute function app.reject_approved_key_delete();
 revoke execute on function app.reject_approved_key_delete() from public;
 
+-- Approval freezes a version: the only allowed update is approved_at/approved_by going from null to set.
+create function app.reject_approved_key_version_update() returns trigger language plpgsql as $$
+begin
+  if old.approved_at is not null then
+    raise exception 'approved answer key versions are immutable';
+  end if;
+  return new;
+end $$;
+create trigger answer_key_versions_keep_approved_update before update on keys.answer_key_versions
+  for each row execute function app.reject_approved_key_version_update();
+revoke execute on function app.reject_approved_key_version_update() from public;
+
+-- Items of an approved version cannot be inserted, changed, moved or deleted.
+-- Cascade deletes of an unapproved version pass: the parent row is already gone by then.
+create function app.reject_approved_key_item_change() returns trigger language plpgsql as $$
+begin
+  if tg_op in ('UPDATE', 'DELETE') and exists (
+    select 1 from keys.answer_key_versions v where v.id = old.version_id and v.approved_at is not null
+  ) then
+    raise exception 'approved answer key items are immutable';
+  end if;
+  if tg_op in ('INSERT', 'UPDATE') and exists (
+    select 1 from keys.answer_key_versions v where v.id = new.version_id and v.approved_at is not null
+  ) then
+    raise exception 'approved answer key items are immutable';
+  end if;
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
+end $$;
+create trigger answer_key_items_keep_approved before insert or update or delete on keys.answer_key_items
+  for each row execute function app.reject_approved_key_item_change();
+revoke execute on function app.reject_approved_key_item_change() from public;
+
 grant select, insert, update, delete on
   tests, test_assets, sections, questions, page_texts, ocr_jobs,
   keys.answer_key_versions, keys.answer_key_items
