@@ -1,9 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState, type FormEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate, useOutletContext, useParams } from 'react-router';
 import { ErrorAlert, Field, Icon, Loading, Notice, order, PageHead } from '../../components/ui';
 import { useI18n } from '../../lib/i18n';
-import { ImportPanel } from './import';
 import { testsApi, type Authoring, type CreateTest, type SourceType, type TestDetail, type TestType } from '../../lib/tests-api';
 
 export type EditorContext = { test: TestDetail };
@@ -22,10 +21,39 @@ const DEFAULT_MINUTES: Record<TestType, number> = { course: 120, ielts_standard:
 export const detailKey = (id: string) => ['test', id] as const;
 
 /** Loads one test for every step, and polls while OCR is still running. */
+/** Keeps the step area as tall as the step just left until the new step has loaded,
+ * so a loading spinner does not shrink the page and throw the scroll back to the top. */
+function useKeptHeight(step: string) {
+  const outer = useRef<HTMLDivElement>(null);
+  const inner = useRef<HTMLDivElement>(null);
+  const last = useRef(0);
+  useEffect(() => {
+    const el = inner.current;
+    if (!el) return;
+    let timer = 0;
+    const observer = new ResizeObserver(() => {
+      last.current = el.offsetHeight;
+      const box = outer.current;
+      if (!box?.style.minHeight) return;
+      clearTimeout(timer);
+      // Released once the new step fills the space, or after it has held still for a moment.
+      if (el.offsetHeight >= parseFloat(box.style.minHeight)) box.style.minHeight = '';
+      else timer = window.setTimeout(() => { box.style.minHeight = ''; }, 1500);
+    });
+    observer.observe(el);
+    return () => { observer.disconnect(); clearTimeout(timer); };
+  });
+  useLayoutEffect(() => {
+    if (outer.current && last.current) outer.current.style.minHeight = `${last.current}px`;
+  }, [step]);
+  return { outer, inner };
+}
+
 export function EditorLayout() {
   const { t } = useI18n();
   const id = useParams().id ?? '';
   const { pathname } = useLocation();
+  const kept = useKeptHeight(pathname);
   const test = useQuery({
     queryKey: detailKey(id),
     queryFn: () => testsApi.get(id),
@@ -52,13 +80,15 @@ export function EditorLayout() {
       </PageHead>
       <nav className="steps in" style={order(3)} aria-label={t.tests.steps.label}>
         {STEPS.map(([path, name]) => (
-          <NavLink key={name} to={path ? `/tests/${id}/${path}` : `/tests/${id}`} end>
+          <NavLink key={name} to={path ? `/tests/${id}/${path}` : `/tests/${id}`} end preventScrollReset>
             {t.tests.steps[name]}
           </NavLink>
         ))}
       </nav>
-      <div className="in" style={order(4)}>
-        <Outlet context={{ test: data } satisfies EditorContext} />
+      <div ref={kept.outer} className="in" style={order(4)}>
+        <div ref={kept.inner}>
+          <Outlet context={{ test: data } satisfies EditorContext} />
+        </div>
       </div>
     </>
   );
@@ -71,9 +101,6 @@ function DetailsForm({ test }: { test?: TestDetail }) {
   const locked = test !== undefined && test.status !== 'draft';
   const type: TestType = test?.testType ?? 'course';
   const [authoring, setAuthoring] = useState<Authoring>(test?.authoring ?? 'pdf');
-  // A new manual test is typed from scratch or filled from AI JSON (which brings its own details).
-  const [fromAi, setFromAi] = useState(false);
-  const importing = test === undefined && authoring === 'manual' && fromAi;
   const [minutes, setMinutes] = useState(String(test?.durationMinutes ?? DEFAULT_MINUTES.course));
   // A test made by a failed submit is reused by the retry, so a retry never makes a second test.
   const [createdId, setCreatedId] = useState<string | null>(null);
@@ -111,7 +138,7 @@ function DetailsForm({ test }: { test?: TestDetail }) {
 
   return (
     <form className="details" onSubmit={submit}>
-      <div className="stack" hidden={importing}>
+      <div className="stack">
         <Field label={t.tests.form.title} name="title" type="text" maxLength={120} required defaultValue={test?.title} disabled={locked} />
         <div className="pair">
           <div className="field">
@@ -134,22 +161,10 @@ function DetailsForm({ test }: { test?: TestDetail }) {
             </button>
           ))}
         </fieldset>
-        {test === undefined && authoring === 'manual' && (
-          <fieldset>
-            <legend>{t.tests.mode.source}</legend>
-            {[false, true].map((ai) => (
-              <button key={String(ai)} type="button" className={`type-option${fromAi === ai ? ' on' : ''}`} aria-pressed={fromAi === ai} onClick={() => setFromAi(ai)}>
-                <strong>{ai ? t.tests.mode.fromAi : t.tests.mode.scratch}</strong>
-                <span>{ai ? t.tests.mode.fromAiBody : t.tests.mode.scratchBody}</span>
-              </button>
-            ))}
-          </fieldset>
-        )}
-        {importing && <ImportPanel />}
         <ErrorAlert error={save.error} />
         {save.isSuccess && test !== undefined && <Notice>{t.tests.form.saved}</Notice>}
         {locked && <p className="muted">{t.tests.locked}</p>}
-        <button className="primary-wide" hidden={importing} disabled={save.isPending || locked}>
+        <button className="primary-wide" disabled={save.isPending || locked}>
           <span>{save.isPending ? t.tests.form.working : test === undefined ? t.tests.next : t.tests.form.save}</span>
           <Icon name="arrow" />
         </button>

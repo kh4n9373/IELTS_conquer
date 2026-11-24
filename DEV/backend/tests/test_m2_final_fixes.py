@@ -386,8 +386,10 @@ def test_store_result_locks_the_test_row_first(h: Harness, t: dict[str, Any]) ->
     tid = make(h, t, pdf=False)
     put_student(h, t, tid)
     row = asset(h, tid, "student_pdf")
-    h.owner_rows("update test_assets set ocr_approved_at = %s, ocr_approved_by = %s where id = %s",
-                 (h.now, t["id"], row["id"]))
+    h.owner_rows(
+        "update test_assets set ocr_approved_at = %s, ocr_approved_by = %s where id = %s",
+        (h.now, t["id"], row["id"]),
+    )
     stray_job(h, row)
     statements: list[str] = []
 
@@ -421,5 +423,3 @@ def test_store_result_locks_the_test_row_first(h: Harness, t: dict[str, Any]) ->
         monkeypatch.undo()
     done = next(i for i, s in enumerate(statements) if s.startswith("update ocr_jobs set state = 'done'"))
     assert statements[done - 1].startswith("select status from tests where id = %s for update")
-
-

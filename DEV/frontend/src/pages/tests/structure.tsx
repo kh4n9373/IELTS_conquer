@@ -2,9 +2,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { PdfViewer, pdfUrlKey } from '../../components/pdf-viewer';
-import { Empty, ErrorAlert, Icon, Loading, Notice } from '../../components/ui';
+import { Empty, ErrorAlert, Icon, Loading } from '../../components/ui';
 import { useI18n } from '../../lib/i18n';
-import { GROUP_OF, QUESTION_TYPES, testsApi, type KeyItem, type QuestionType, type Section, type StructureSection } from '../../lib/tests-api';
+import { GROUP_OF, QUESTION_TYPES, testsApi, type KeyItem, type QuestionType, type Section, type StructureSection, type TestDetail } from '../../lib/tests-api';
 import { detailKey, useTest } from './editor';
 import { ImportPanel } from './import';
 
@@ -92,34 +92,36 @@ export function StructurePage() {
     if (!test.studentPdf) return <PdfUpload />;
     if (test.ocr && ['queued', 'running'].includes(test.ocr.state)) return <Processing />;
   }
-  if (test.authoring === 'manual' && test.status === 'draft') return <ManualWithReimport />;
+  if (test.authoring === 'manual' && test.status === 'draft') return <ManualDraft />;
   return <QuestionsLoader />;
 }
 
-/** A manual draft can be replaced wholesale from AI JSON; the editor reopens on the new questions. */
-function ManualWithReimport() {
+/** Questions imported from AI are added on the server, so the editor reopens on the stored test. */
+function ManualDraft() {
+  const [round, setRound] = useState({ n: 0, tab: 0 });
+  return <QuestionsLoader key={round.n} tab={round.tab} onReload={(tab) => setRound((r) => ({ n: r.n + 1, tab }))} />;
+}
+
+function ImportDialog({ testId, beforeImport, onDone, onClose }: {
+  testId: string;
+  beforeImport: () => Promise<boolean>;
+  onDone: (test: TestDetail) => void;
+  onClose: () => void;
+}) {
   const { t } = useI18n();
-  const { test } = useTest();
-  const [open, setOpen] = useState(false);
-  const [round, setRound] = useState(0);
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (el && !el.open) el.showModal();
+  }, []);
   return (
-    <>
-      <details className="reimport" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
-        <summary>{t.tests.mode.reimport}</summary>
-        <p className="muted">{t.tests.mode.reimportHelp}</p>
-        {open && (
-          <ImportPanel
-            testId={test.id}
-            onDone={() => {
-              unsaved.delete(test.id);
-              setOpen(false);
-              setRound((n) => n + 1);
-            }}
-          />
-        )}
-      </details>
-      <QuestionsLoader key={round} />
-    </>
+    <dialog ref={ref} className="import-dialog" aria-labelledby="import-title" onCancel={(e) => { e.preventDefault(); onClose(); }}>
+      <div className="import-dialog-head">
+        <h2 id="import-title">{t.tests.importAi.title}</h2>
+        <button type="button" className="ghost" aria-label={t.tests.importAi.close} onClick={onClose}>×</button>
+      </div>
+      <ImportPanel testId={testId} beforeImport={beforeImport} onDone={onDone} />
+    </dialog>
   );
 }
 
@@ -176,16 +178,16 @@ function Processing() {
 }
 
 /** Loads the current answers once, so every question opens with its answer beside it. */
-function QuestionsLoader() {
+function QuestionsLoader({ tab = 0, onReload }: { tab?: number; onReload?: (tab: number) => void }) {
   const { test } = useTest();
   const key = useQuery({ queryKey: ['test', test.id, 'key'], queryFn: () => testsApi.getKey(test.id) });
   // Coming back from another step waits for fresh answers, so the editor never opens on stale ones.
   if (key.isPending || (key.isFetching && !key.isFetchedAfterMount)) return <Loading />;
   if (key.isError) return <ErrorAlert error={key.error} />;
-  return <QuestionsEditor sections={test.sections} items={key.data.items} />;
+  return <QuestionsEditor sections={test.sections} items={key.data.items} tab={tab} onReload={onReload} />;
 }
 
-function QuestionsEditor({ sections, items }: { sections: Section[]; items: KeyItem[] }) {
+function QuestionsEditor({ sections, items, tab, onReload }: { sections: Section[]; items: KeyItem[]; tab: number; onReload?: (tab: number) => void }) {
   const { t } = useI18n();
   const m = t.tests.manual;
   const { test } = useTest();
@@ -194,7 +196,8 @@ function QuestionsEditor({ sections, items }: { sections: Section[]; items: KeyI
   const navigate = useNavigate();
   const locked = test.status !== 'draft';
   const [drafts, setDrafts] = useState<DraftSection[]>(() => unsaved.get(test.id) ?? fromServer(sections, items));
-  const [open, setOpen] = useState(0);
+  const [open, setOpen] = useState(tab);
+  const [importing, setImporting] = useState(false);
   const [dirty, setDirty] = useState(() => unsaved.has(test.id));
   const [badPages, setBadPages] = useState(false);
   const [pdfPage, setPdfPage] = useState(() => sections[0]?.passagePages[0] ?? 1);
@@ -296,6 +299,14 @@ function QuestionsEditor({ sections, items }: { sections: Section[]; items: KeyI
     if (dirty && !locked && !(await save.mutateAsync(drafts).then(() => true, () => false))) return;
     navigate(`/tests/${test.id}/key`);
   };
+  // Pending edits are saved first, so the append lands after what is on screen.
+  const beforeImport = async () => !dirty || (await save.mutateAsync(drafts).then(() => true, () => false));
+  const imported = (fresh: TestDetail) => {
+    unsaved.delete(test.id);
+    client.setQueryData(detailKey(test.id), fresh);
+    void client.invalidateQueries({ queryKey: ['test', test.id, 'key'] });
+    onReload?.(drafts.length);
+  };
   const total = drafts.reduce((n, d) => n + d.qs.length, 0);
   let shown = drafts.slice(0, open).reduce((n, d) => n + d.qs.length, 0);
 
@@ -332,7 +343,11 @@ function QuestionsEditor({ sections, items }: { sections: Section[]; items: KeyI
           ))}
           {!locked && <button type="button" className="secondary" onClick={addSection}><Icon name="plus" /><span>{m.addSection}</span></button>}
           {pdf && !locked && <PdfUpload compact />}
+          {!pdf && !locked && onReload && (
+            <button type="button" className="secondary qe-import" onClick={() => setImporting(true)}><Icon name="plus" /><span>{t.tests.importAi.title}</span></button>
+          )}
         </div>
+        {importing && <ImportDialog testId={test.id} beforeImport={beforeImport} onDone={imported} onClose={() => setImporting(false)} />}
         {current && (
           <fieldset className="stack" disabled={locked}>
             <div className="qe-head">
@@ -434,7 +449,6 @@ function QuestionsEditor({ sections, items }: { sections: Section[]; items: KeyI
         {badPages && <p className="alert" role="alert"><span>{m.badPages}</span></p>}
         {!badPages && <ErrorAlert error={save.error} />}
         {!locked && dirty && !save.isError && <p className="muted" role="status">{m.saving}</p>}
-        {save.isSuccess && !dirty && <Notice>{m.saved}</Notice>}
         {locked && <p className="muted">{t.tests.locked}</p>}
         <div className="row-actions end">
           <button type="button" disabled={save.isPending} onClick={() => void goOn()}><span>{t.tests.next}</span><Icon name="arrow" /></button>

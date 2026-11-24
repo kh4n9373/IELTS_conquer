@@ -4,11 +4,8 @@ import { Link, useNavigate, useParams } from 'react-router';
 import { ErrorAlert, Loading, Notice, order, PageHead, useConfirm } from '../../components/ui';
 import { examApi, type AssignmentDetail, type AssignmentMode, type RecipientState, type ReleasePolicy } from '../../lib/exam-api';
 import { useI18n } from '../../lib/i18n';
-import { toIso, useDateTime } from './list';
+import { toIso, toLocal, useDateTime } from './list';
 import './assignments.css';
-
-/** An ISO instant as a datetime-local value in Vietnam time. */
-const toLocal = (iso: string) => new Date(new Date(iso).getTime() + 7 * 3600_000).toISOString().slice(0, 16);
 
 function EditForm({ row, onDone }: { row: AssignmentDetail; onDone: (saved: boolean) => void }) {
   const { t } = useI18n();

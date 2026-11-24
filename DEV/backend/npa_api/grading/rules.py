@@ -37,7 +37,7 @@ def normalize(text: str) -> str:
     return s.rstrip(_TRAILING + " ").casefold()
 
 
-def _canonical(q: GradableQuestion, text: str, rules: RuleSet) -> str:
+def canonical(q: GradableQuestion, text: str, rules: RuleSet) -> str:
     s = normalize(text)
     if q.question_type == "multiple_choice_multi":
         # "C, A" and "a,c" are the same pick: an unordered set of option letters.
@@ -49,7 +49,7 @@ def _canonical(q: GradableQuestion, text: str, rules: RuleSet) -> str:
 
 
 def _accepted(q: GradableQuestion, rules: RuleSet) -> set[str]:
-    return {_canonical(q, a, rules) for a in q.accepted}
+    return {canonical(q, a, rules) for a in q.accepted}
 
 
 def _strip_article(s: str) -> str:
@@ -65,7 +65,7 @@ def _given(answers: Mapping[int, str], number: int) -> str | None:
 
 
 def _grade_single(q: GradableQuestion, given: str, rules: RuleSet) -> Mark:
-    s = _canonical(q, given, rules)
+    s = canonical(q, given, rules)
     if q.word_limit is not None and len(s.split()) > q.word_limit:
         return Mark(q.number, given, False, "over_word_limit")
     accepted = _accepted(q, rules)
@@ -74,7 +74,7 @@ def _grade_single(q: GradableQuestion, given: str, rules: RuleSet) -> Mark:
 
 
 def _over_limit(q: GradableQuestion, given: str, rules: RuleSet) -> bool:
-    return q.word_limit is not None and len(_canonical(q, given, rules).split()) > q.word_limit
+    return q.word_limit is not None and len(canonical(q, given, rules).split()) > q.word_limit
 
 
 def _grade_group(
@@ -85,7 +85,7 @@ def _grade_group(
     for q in sorted(group, key=lambda x: x.number):
         g = _given(answers, q.number)
         if g is not None and not _over_limit(q, g, rules):
-            owners.setdefault(_canonical(q, g, rules), q.number)
+            owners.setdefault(canonical(q, g, rules), q.number)
     slots = {q.number: _accepted(q, rules) for q in group}
     taken: dict[int, str] = {}  # slot -> input
 
@@ -109,7 +109,7 @@ def _grade_group(
         elif _over_limit(q, g, rules):
             marks[q.number] = Mark(q.number, g, False, "over_word_limit")
         else:
-            ok = owners[_canonical(q, g, rules)] == q.number and _canonical(q, g, rules) in scored
+            ok = owners[canonical(q, g, rules)] == q.number and canonical(q, g, rules) in scored
             marks[q.number] = Mark(q.number, g, ok, "correct" if ok else "wrong")
     return marks
 

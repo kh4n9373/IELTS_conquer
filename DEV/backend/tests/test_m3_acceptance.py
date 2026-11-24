@@ -48,8 +48,14 @@ def publish_sections(
 
 def take(h: Harness, teacher: str, tid: str, given: dict[int, str]) -> dict[str, Any]:
     class_id, students = make_class_with_students(h, teacher, 1)
-    body = {"testId": tid, "classId": class_id, "opensAt": OPEN, "dueAt": DUE, "maxAttempts": 1,
-            "mode": "exam"}
+    body = {
+        "testId": tid,
+        "classId": class_id,
+        "opensAt": OPEN,
+        "dueAt": DUE,
+        "maxAttempts": 1,
+        "mode": "exam",
+    }
     assigned = h.call(teacher, "POST", "/api/assignments", body)
     assert assigned.status == 201, assigned.json
     student = students[0]
@@ -79,12 +85,28 @@ def test_s4_mixed_inputs(h: Harness, teacher: str) -> None:
         ],
     }
     key = {
-        1: ["True"], 2: ["False"], 3: ["Yes"], 4: ["colour"], 5: ["colour"], 6: ["red house"],
-        7: ["necessary"], 8: ["B", "D"], 9: ["B", "D"],
+        1: ["True"],
+        2: ["False"],
+        3: ["Yes"],
+        4: ["colour"],
+        5: ["colour"],
+        6: ["red house"],
+        7: ["necessary"],
+        8: ["B", "D"],
+        9: ["B", "D"],
     }
     tid = publish_sections(h, teacher, "course", [section], key)
-    given = {1: "t", 2: "FALSE", 3: "t", 4: "colour", 5: "color", 6: "big red house", 7: "neccessary",
-             8: "D", 9: "B"}
+    given = {
+        1: "t",
+        2: "FALSE",
+        3: "t",
+        4: "colour",
+        5: "color",
+        6: "big red house",
+        7: "neccessary",
+        8: "D",
+        9: "B",
+    }
     body = take(h, teacher, tid, given)
     verdict = {i["number"]: i["correct"] for i in body["items"]}
     assert verdict == {1: True, 2: True, 3: False, 4: True, 5: False, 6: False, 7: False, 8: True, 9: True}
@@ -107,5 +129,8 @@ def test_ielts_standard_published_through_real_route_gets_estimated_band(h: Harn
     body = take(h, teacher, tid, {n: f"w{n}" if n <= 30 else "wrong" for n in range(1, 41)})
     assert (body["correct"], body["total"]) == (30, 40)
     assert (body["band"], body["bandLabel"], body["bandTableVersion"]) == (
-        "7.0", "estimated", "academic-reading-2026-1")
+        "7.0",
+        "estimated",
+        "academic-reading-2026-1",
+    )
     assert len(body["sections"]) == 3

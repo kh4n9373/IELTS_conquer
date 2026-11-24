@@ -109,6 +109,22 @@ export type ResultReleased = {
 export type ResultPreview = Omit<ResultReleased, 'released'> & { released: false };
 export type ResultView = ResultPending | ResultReleased | ResultPreview;
 
+export type ReviewItem = {
+  number: number;
+  type: string;
+  sectionTitle: string;
+  prompt: string;
+  options: string[];
+  /** Pickable values marked by the server; null for free-text answers. */
+  choices: { label: string; text: string; mark: 'key' | 'wrong' | null }[] | null;
+  answer: string | null;
+  correct: boolean;
+  key: string[];
+  explanation: { correct: string; chosen: string | null } | null;
+  explanationState: 'ready' | 'pending' | 'none';
+};
+export type ReviewView = ResultPending | { released: true; testTitle: string; items: ReviewItem[] };
+
 const a = '/api/assignments';
 const at = (id: string) => `/api/attempts/${id}`;
 
@@ -131,6 +147,7 @@ export const examApi = {
   submit: (attemptId: string, writerToken: string) =>
     api.post<{ status: AttemptStatus; finalizedAt: string | null }>(`${at(attemptId)}/submit`, { writerToken }),
   result: (attemptId: string) => api.get<ResultView>(`${at(attemptId)}/result`),
+  review: (attemptId: string) => api.get<ReviewView>(`${at(attemptId)}/review`),
 };
 
 /** Best-effort device class for the attempt record. */

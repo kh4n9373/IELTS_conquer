@@ -25,6 +25,11 @@ export function useDateTime() {
 /** A datetime-local value is read as Vietnam time. */
 export const toIso = (local: string) => new Date(`${local}:00+07:00`).toISOString();
 
+/** An instant as a datetime-local value in Vietnam time. */
+export const toLocal = (when: string | number) => new Date(new Date(when).getTime() + 7 * 3600_000).toISOString().slice(0, 16);
+
+const DAY = 24 * 3600_000;
+
 export function AssignmentsPage() {
   const me = useMe();
   if (!me.data) return null;
@@ -45,8 +50,9 @@ function NewAssignment({ onDone }: { onDone: () => void }) {
   const [classId, setClassId] = useState('');
   const [all, setAll] = useState(true);
   const [chosen, setChosen] = useState<string[]>([]);
-  const [opens, setOpens] = useState('');
-  const [due, setDue] = useState('');
+  const [opens, setOpens] = useState(() => toLocal(Date.now()));
+  const [due, setDue] = useState(() => toLocal(Date.now() + DAY));
+  const [dueTouched, setDueTouched] = useState(false);
   const [attempts, setAttempts] = useState(1);
   const [mode, setMode] = useState<AssignmentMode>('exam');
   const [release, setRelease] = useState<ReleasePolicy | null>(null);
@@ -119,10 +125,18 @@ function NewAssignment({ onDone }: { onDone: () => void }) {
           </div>
         )}
         <label className="plain">{t.assignments.opens}
-          <input type="datetime-local" value={opens} onChange={(e) => setOpens(e.target.value)} required />
+          <input
+            type="datetime-local"
+            value={opens}
+            onChange={(e) => {
+              setOpens(e.target.value);
+              if (!dueTouched && e.target.value) setDue(toLocal(new Date(toIso(e.target.value)).getTime() + DAY));
+            }}
+            required
+          />
         </label>
         <label className="plain">{t.assignments.due}
-          <input type="datetime-local" value={due} onChange={(e) => setDue(e.target.value)} required />
+          <input type="datetime-local" value={due} onChange={(e) => { setDue(e.target.value); setDueTouched(true); }} required />
         </label>
         <fieldset>
           <legend>{t.assignments.attempts}</legend>

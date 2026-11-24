@@ -46,11 +46,14 @@ export function ResultPage() {
 type Item = ResultReleased['items'][number];
 type Filter = 'all' | 'wrong' | 'blank';
 const statusOf = (i: Item) => (i.correct ? 'right' : i.answer ? 'wrong' : 'blank');
+const PAGE = 10;
 
 function Released({ data }: { data: ResultReleased | ResultPreview }) {
   const { t } = useI18n();
+  const { attemptId = '' } = useParams();
   const dateTime = useDateTime();
   const [filter, setFilter] = useState<Filter>('all');
+  const [page, setPage] = useState(0);
   const counts = useMemo(() => {
     const c = { right: 0, wrong: 0, blank: 0 };
     for (const i of data.items) c[statusOf(i)] += 1;
@@ -60,6 +63,12 @@ function Released({ data }: { data: ResultReleased | ResultPreview }) {
     () => data.items.filter((i) => filter === 'all' || (filter === 'wrong' ? !i.correct : statusOf(i) === 'blank')),
     [data.items, filter],
   );
+  const pages = Math.max(1, Math.ceil(rows.length / PAGE));
+  const shown = rows.slice(page * PAGE, page * PAGE + PAGE);
+  const pick = (f: Filter) => {
+    setFilter(f);
+    setPage(0);
+  };
   const hasBand = data.band !== undefined;
   const percent = Math.round(data.percent);
   const notes = [
@@ -73,6 +82,7 @@ function Released({ data }: { data: ResultReleased | ResultPreview }) {
   ];
   const jump = (n: number) => {
     setFilter('all');
+    setPage(Math.floor((data.items.findIndex((i) => i.number === n)) / PAGE));
     requestAnimationFrame(() => {
       const row = document.getElementById(`res-q-${n}`);
       row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -109,11 +119,17 @@ function Released({ data }: { data: ResultReleased | ResultPreview }) {
           </div>
           <span className="res-percent"><b>{`${percent}%`}</b> {t.result.rate.toLowerCase()}</span>
         </div>
-        <dl className="res-tally">
-          <div><dt>{t.result.right}</dt><dd>{counts.right}</dd></div>
-          <div className="is-wrong"><dt>{t.result.wrong}</dt><dd>{counts.wrong}</dd></div>
-          <div className="is-blank"><dt>{t.result.blankLabel}</dt><dd>{counts.blank}</dd></div>
-        </dl>
+        <div className="res-split">
+          <div className="res-split-bar" role="img"
+            aria-label={`${t.result.right} ${counts.right}, ${t.result.wrong} ${counts.wrong}, ${t.result.blankLabel} ${counts.blank}`}>
+            {(['right', 'wrong', 'blank'] as const).map((k) => counts[k] > 0 && <span key={k} className={`is-${k}`} style={{ flexGrow: counts[k] }} />)}
+          </div>
+          <dl className="res-split-legend">
+            <div className="is-right"><dt>{t.result.right}</dt><dd>{counts.right}</dd></div>
+            <div className="is-wrong"><dt>{t.result.wrong}</dt><dd>{counts.wrong}</dd></div>
+            <div className="is-blank"><dt>{t.result.blankLabel}</dt><dd>{counts.blank}</dd></div>
+          </dl>
+        </div>
       </header>
 
       {notes.length > 0 && (
@@ -169,7 +185,7 @@ function Released({ data }: { data: ResultReleased | ResultPreview }) {
           <h2 id="res-detail-h">{t.result.detail}</h2>
           <div className="res-filters" role="group" aria-label={t.result.detail}>
             {filters.map(([key, label, n]) => (
-              <button key={key} type="button" aria-pressed={filter === key} onClick={() => setFilter(key)}>
+              <button key={key} type="button" aria-pressed={filter === key} onClick={() => pick(key)}>
                 {label}<span className="res-count">{n}</span>
               </button>
             ))}
@@ -188,7 +204,7 @@ function Released({ data }: { data: ResultReleased | ResultPreview }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((i) => {
+              {shown.map((i) => {
                 const s = statusOf(i);
                 return (
                   <tr key={i.number} id={`res-q-${i.number}`} tabIndex={-1} className={`is-${s}`}>
@@ -202,8 +218,25 @@ function Released({ data }: { data: ResultReleased | ResultPreview }) {
             </tbody>
           </table>
         )}
+        {pages > 1 && (
+          <nav className="res-pager" aria-label={t.result.pages}>
+            <button type="button" className="secondary" disabled={page === 0} onClick={() => setPage(page - 1)} aria-label={t.result.prevPage}>‹</button>
+            {Array.from({ length: pages }, (_, k) => (
+              <button key={k} type="button" aria-current={k === page ? 'page' : undefined} onClick={() => setPage(k)}
+                aria-label={t.result.pageOf(k * PAGE + 1, Math.min((k + 1) * PAGE, rows.length))}>
+                {k + 1}
+              </button>
+            ))}
+            <button type="button" className="secondary" disabled={page === pages - 1} onClick={() => setPage(page + 1)} aria-label={t.result.nextPage}>›</button>
+          </nav>
+        )}
       </section>
-      <Link className="button-link auto" to="/assignments" viewTransition><Icon name="back" />{t.result.back}</Link>
+      <div className="res-actions">
+        <Link className="button-link auto secondary" to="/assignments" viewTransition><Icon name="back" />{t.result.back}</Link>
+        {data.released && (
+          <Link className="button-link auto" to={`/results/${attemptId}/review`} viewTransition>{t.review.details}<Icon name="arrow" /></Link>
+        )}
+      </div>
     </div>
   );
 }

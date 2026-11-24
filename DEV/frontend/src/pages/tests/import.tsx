@@ -1,9 +1,8 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
-import { useNavigate } from 'react-router';
-import { ErrorAlert, Icon, Notice, useConfirm } from '../../components/ui';
+import { ErrorAlert, Icon, Notice } from '../../components/ui';
 import { useI18n } from '../../lib/i18n';
-import { testsApi, type ImportIssue, type ImportReport } from '../../lib/tests-api';
+import { testsApi, type ImportIssue, type ImportReport, type TestDetail } from '../../lib/tests-api';
 
 const GUIDE_URL = '/api/exam-schema/v1/ai-guide.md';
 
@@ -17,32 +16,23 @@ function issueLine(i: ImportIssue): string {
   return `[${i.code}] ${i.path}${i.number ? ` (câu ${i.number})` : ''}: ${i.message}`;
 }
 
-/** Paste AI output, check it, then create a test (or replace a draft's content when `testId` is given). */
-export function ImportPanel({ testId, onDone }: { testId?: string; onDone?: () => void }) {
+/** Paste AI output, check it, then add its questions after the ones already in the test.
+ * `beforeImport` saves the editor's pending edits first; false stops the import. */
+export function ImportPanel({ testId, beforeImport, onDone }: {
+  testId: string;
+  beforeImport: () => Promise<boolean>;
+  onDone: (test: TestDetail) => void;
+}) {
   const { t } = useI18n();
   const c = t.tests.importAi;
-  const client = useQueryClient();
-  const navigate = useNavigate();
-  const { ask, dialog } = useConfirm();
   const [text, setText] = useState('');
   const [report, setReport] = useState<ImportReport | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
   const check = useMutation({ mutationFn: () => testsApi.validateImport(text), onSuccess: setReport });
-  const create = useMutation({
-    mutationFn: async () => {
-      if (testId) {
-        client.setQueryData(['test', testId], await testsApi.reimport(testId, text));
-        return testId;
-      }
-      return (await testsApi.createImport(text)).id;
-    },
-    onSuccess: (id) => {
-      client.invalidateQueries({ queryKey: ['tests'] });
-      client.invalidateQueries({ queryKey: ['test', id] });
-      if (onDone) onDone();
-      else navigate(`/tests/${id}/structure`);
-    },
+  const add = useMutation({
+    mutationFn: async () => ((await beforeImport()) ? testsApi.importInto(testId, text) : null),
+    onSuccess: (test) => test && onDone(test),
   });
 
   const copy = async (what: 'guide' | 'errors') => {
@@ -59,28 +49,26 @@ export function ImportPanel({ testId, onDone }: { testId?: string; onDone?: () =
 
   return (
     <div className="import-page">
-      {dialog}
-      {!testId && (
-        <div className="import-steps">
-          <div>
-            <strong>{c.step1}</strong>
-            <span className="muted">{c.step1Body}</span>
-            <span className="import-actions">
-              <button type="button" className="secondary" onClick={() => void download()}>{c.download}</button>
-              <button type="button" className="secondary" onClick={() => void copy('guide')}>{copied === 'guide' ? c.copied : c.copyGuide}</button>
-            </span>
-          </div>
-          <div>
-            <strong>{c.step2}</strong>
-            <span className="muted">{c.step2Body}</span>
-            <code>{c.prompt}</code>
-          </div>
-          <div>
-            <strong>{c.step3}</strong>
-            <span className="muted">{c.step3Body}</span>
-          </div>
+      <p className="muted">{c.lede}</p>
+      <div className="import-steps">
+        <div>
+          <strong>{c.step1}</strong>
+          <span className="muted">{c.step1Body}</span>
+          <span className="import-actions">
+            <button type="button" className="secondary" onClick={() => void download()}>{c.download}</button>
+            <button type="button" className="secondary" onClick={() => void copy('guide')}>{copied === 'guide' ? c.copied : c.copyGuide}</button>
+          </span>
         </div>
-      )}
+        <div>
+          <strong>{c.step2}</strong>
+          <span className="muted">{c.step2Body}</span>
+          <code>{c.prompt}</code>
+        </div>
+        <div>
+          <strong>{c.step3}</strong>
+          <span className="muted">{c.step3Body}</span>
+        </div>
+      </div>
       <div className="field">
         <label htmlFor="import-json">{c.paste}</label>
         <textarea
@@ -94,7 +82,7 @@ export function ImportPanel({ testId, onDone }: { testId?: string; onDone?: () =
           }}
         />
       </div>
-      <ErrorAlert error={check.error ?? create.error} />
+      <ErrorAlert error={check.error ?? add.error} />
       {report && !report.ok && (
         <section>
           <p role="alert"><strong>{c.errors(report.errors.length)}</strong></p>
@@ -128,12 +116,8 @@ export function ImportPanel({ testId, onDone }: { testId?: string; onDone?: () =
         <button type="button" className="secondary" disabled={!text.trim() || check.isPending} onClick={() => check.mutate()}>
           {check.isPending ? t.tests.form.working : c.check}
         </button>
-        <button type="button" className="primary-wide" disabled={!report?.ok || create.isPending} onClick={() =>
-            testId
-              ? ask({ title: c.reimport, body: c.reimportConfirm, action: c.reimport, run: () => create.mutate() })
-              : create.mutate()
-          }>
-          <span>{create.isPending ? t.tests.form.working : testId ? c.reimport : c.create}</span>
+        <button type="button" className="primary-wide" disabled={!report?.ok || add.isPending} onClick={() => add.mutate()}>
+          <span>{add.isPending ? t.tests.form.working : c.add}</span>
           <Icon name="arrow" />
         </button>
       </span>

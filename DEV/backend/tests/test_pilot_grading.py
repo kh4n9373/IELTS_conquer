@@ -64,8 +64,7 @@ def test_s14_cases() -> None:
     failed = [
         index
         for index, (number, answer, expected) in enumerate(cases)
-        if next(m for m in grade(qs, {number: answer}, "pilot-1") if m.number == number).correct
-        != expected
+        if next(m for m in grade(qs, {number: answer}, "pilot-1") if m.number == number).correct != expected
     ]
     assert unknown_forms == []
     assert failed == []

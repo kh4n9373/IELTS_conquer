@@ -30,8 +30,14 @@ class Room:
         return self.students[(self.next - 1) % len(self.students)]
 
     def assign(self, h: Harness, **extra: Any) -> str:
-        body = {"testId": self.test_id, "classId": self.class_id, "opensAt": OPEN, "dueAt": DUE,
-                "maxAttempts": 1, "mode": "exam"} | extra
+        body = {
+            "testId": self.test_id,
+            "classId": self.class_id,
+            "opensAt": OPEN,
+            "dueAt": DUE,
+            "maxAttempts": 1,
+            "mode": "exam",
+        } | extra
         res = h.call(self.cookie, "POST", "/api/assignments", body)
         assert res.status == 201
         return str(res.json["id"])

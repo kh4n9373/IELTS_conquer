@@ -18,8 +18,15 @@ DUE_AT = T + timedelta(hours=10)
 
 def facts(**kw: Any) -> ReleaseFacts:
     base: dict[str, Any] = {
-        "mode": "exam", "policy": "after_submit", "release_at": None, "due_at": DUE_AT, "max_attempts": 1,
-        "this_attempt_final": True, "own_final_count": 1, "active_recipients": 1, "recipients_done": 1,
+        "mode": "exam",
+        "policy": "after_submit",
+        "release_at": None,
+        "due_at": DUE_AT,
+        "max_attempts": 1,
+        "this_attempt_final": True,
+        "own_final_count": 1,
+        "active_recipients": 1,
+        "recipients_done": 1,
         "open_attempts": 0,
     }
     return ReleaseFacts(**(base | kw))
@@ -67,8 +74,14 @@ def test_scheduled_release_waits_for_open_attempts() -> None:
 
 
 def test_practice_releases_after_each_submit() -> None:
-    each = facts(mode="practice", max_attempts=3, own_final_count=1, active_recipients=4, recipients_done=0,
-                 open_attempts=3)
+    each = facts(
+        mode="practice",
+        max_attempts=3,
+        own_final_count=1,
+        active_recipients=4,
+        recipients_done=0,
+        open_attempts=3,
+    )
     assert is_released(each, T)
     assert not is_released(facts(mode="practice", this_attempt_final=False), T)
 
@@ -95,8 +108,14 @@ class Setup:
         self.class_id, self.students = make_class_with_students(h, teacher, count)
 
     def assign(self, **extra: Any) -> str:
-        body = {"testId": self.test_id, "classId": self.class_id, "opensAt": OPEN, "dueAt": DUE,
-                "maxAttempts": 1, "mode": "exam"} | extra
+        body = {
+            "testId": self.test_id,
+            "classId": self.class_id,
+            "opensAt": OPEN,
+            "dueAt": DUE,
+            "maxAttempts": 1,
+            "mode": "exam",
+        } | extra
         res = self.h.call(self.teacher, "POST", "/api/assignments", body)
         assert res.status == 201, res.json
         return str(res.json["id"])
@@ -192,7 +211,10 @@ def test_s5_ielts_30_of_40_is_band_7(h: Harness, teacher: str) -> None:
     body = s.result(s.students[0].cookie, attempt).json
     assert (body["correct"], body["total"]) == (30, 40)
     assert (body["band"], body["bandLabel"], body["bandTableVersion"]) == (
-        "7.0", "estimated", "academic-reading-2026-1")
+        "7.0",
+        "estimated",
+        "academic-reading-2026-1",
+    )
 
 
 def test_s11_course_30_of_40_has_no_band_anywhere(h: Harness, teacher: str) -> None:

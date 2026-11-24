@@ -154,9 +154,13 @@ def test_full_flow_assign_take_submit_result(browser: Browser) -> None:
     row = page.get_by_role("row").filter(has_text=f"{KEY_PREFIX}3")
     expect(row).to_contain_text("wrong guess")
     expect(row).to_contain_text("Sai")
-    expect(page.get_by_role("row").filter(has_text=re.compile(rf"{KEY_PREFIX}1\s*(Đúng|Sai)$"))).to_contain_text("Đúng")
+    expect(
+        page.get_by_role("row").filter(has_text=re.compile(rf"{KEY_PREFIX}1\s*(Đúng|Sai)$"))
+    ).to_contain_text("Đúng")
     page.get_by_role("button", name=re.compile("^Chưa đúng")).click()
-    expect(page.get_by_role("row").filter(has_text=re.compile(rf"{KEY_PREFIX}1\s*(Đúng|Sai)$"))).to_have_count(0)
+    expect(
+        page.get_by_role("row").filter(has_text=re.compile(rf"{KEY_PREFIX}1\s*(Đúng|Sai)$"))
+    ).to_have_count(0)
     expect(page.get_by_role("row").filter(has_text=f"{KEY_PREFIX}3")).to_have_count(1)
 
 

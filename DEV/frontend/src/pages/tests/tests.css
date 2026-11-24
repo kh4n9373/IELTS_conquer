@@ -135,7 +135,10 @@ button.secondary-link, .button-link.secondary-link { color: var(--text); backgro
   .qe { grid-template-columns: 1fr; }
   .qe-left { position: static; }
   }
-.details:has(> .stack[hidden]) { grid-template-columns: 1fr; }
-.reimport { margin-bottom: 16px; padding: 12px 16px; background: var(--sheet); border: 1px solid var(--line); }
-.reimport summary { cursor: pointer; font-weight: 700; }
-.reimport[open] { display: grid; gap: 12px; }
+.qe-import { margin-left: auto; }
+.import-dialog { width: min(860px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); overflow: auto; padding: 24px 28px; color: var(--text); background: var(--sheet); border: 0; border-radius: 3px; box-shadow: 0 40px 90px -20px rgb(0 0 0 / 0.6); }
+.import-dialog::backdrop { background: rgb(17 22 43 / 0.62); backdrop-filter: blur(3px); }
+.import-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.import-dialog-head h2 { margin: 0; }
+.import-dialog-head button { font-size: 1.5rem; line-height: 1; }
+@media (max-width: 640px) { .import-dialog { padding: 18px 16px; } }

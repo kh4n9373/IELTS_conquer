@@ -333,24 +333,25 @@ def _cut(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def _blanks(text: str) -> str:
-    return PLACEHOLDER.sub(lambda m: f"({m.group(1)}) ________", text)
+def _blanks(text: str, offset: int = 0) -> str:
+    return PLACEHOLDER.sub(lambda m: f"({int(m.group(1)) + offset}) ________", text)
 
 
-def _line_of(content: str, number: int) -> str:
+def _line_of(content: str, number: int, offset: int = 0) -> str:
     for line in content.splitlines():
         if number in (int(n) for n in PLACEHOLDER.findall(line)):
-            return _blanks(line).strip(" |")
+            return _blanks(line, offset).strip(" |")
     return ""
 
 
-def to_manual(doc: ExamDoc) -> list[dict[str, Any]]:
+def to_manual(doc: ExamDoc, offset: int = 0) -> list[dict[str, Any]]:
     """The test as manual-mode sections and questions, each question with its key.
 
     The manual model has no group level, so the group's instructions, shared option list and
     gapped text open its first question; later questions carry their own line or prompt.
     Multiple choice keeps its options and answers become letters by position. Other option lists
     become their keys (i, ii, A…), which is what the student picks and what the key holds.
+    `offset` shifts every question number, so the questions can follow ones already in a test.
     """
     out = []
     for s in doc.sections:
@@ -365,13 +366,13 @@ def to_manual(doc: ExamDoc) -> list[dict[str, Any]]:
             if g.options and not choice:
                 shared.append("\n".join(f"{o.key}  {o.text}" for o in g.options))
             if g.content:
-                shared.append(_blanks(g.content))
-            lead = g.questions[0].number if g.select_count > 1 else None
+                shared.append(_blanks(g.content, offset))
+            lead = g.questions[0].number + offset if g.select_count > 1 else None
             for i, q in enumerate(g.questions):
                 if q.prompt:
-                    own = _blanks(q.prompt)
+                    own = _blanks(q.prompt, offset)
                 elif g.content:
-                    own = "" if i == 0 else _line_of(g.content, q.number)
+                    own = "" if i == 0 else _line_of(g.content, q.number, offset)
                 else:
                     own = (g.prompt or "") if i > 0 else ""
                 parts = (shared if i == 0 else []) + ([own] if own else [])
@@ -385,7 +386,7 @@ def to_manual(doc: ExamDoc) -> list[dict[str, Any]]:
                     answers = canonical_answers(g, q)
                 questions.append(
                     {
-                        "number": q.number,
+                        "number": q.number + offset,
                         "type": g.type,
                         "word_limit": g.word_limit,
                         "answer_group": lead,

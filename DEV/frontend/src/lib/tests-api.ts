@@ -130,10 +130,9 @@ export type ImportReport = {
 };
 
 export const testsApi = {
-  // Import from AI (panxg-exam/v1): becomes a manual test.
+  // Import from AI (panxg-exam/v1): appends questions to a manual draft.
   validateImport: (json: string) => api.post<ImportReport>('/api/tests/import/validate', { json }),
-  createImport: (json: string) => api.post<TestSummary>('/api/tests/import', { json }),
-  reimport: (id: string, json: string) => api.post<TestDetail>(`/api/tests/${id}/reimport`, { json }),
+  importInto: (id: string, json: string) => api.post<TestDetail>(`/api/tests/${id}/import`, { json }),
   list: () => api.get<TestSummary[]>('/api/tests'),
   create: (body: CreateTest) => api.post<TestSummary>('/api/tests', body),
   get: (id: string) => api.get<TestDetail>(base(id)),

@@ -108,8 +108,22 @@ def t(h: Harness) -> dict[str, str]:
     return {"a": h.login("imp-a@test.local"), "b": h.login("imp-b@test.local")}
 
 
-def do_import(h: Harness, cookie: str, data: Any) -> Any:
-    return h.call(cookie, "POST", "/api/tests/import", {"json": json.dumps(data)})
+def new_manual(h: Harness, cookie: str) -> str:
+    body = {"title": "Typed", "sourceType": "self_authored", "testType": "course", "durationMinutes": 30,
+            "authoring": "manual"}  # fmt: skip
+    res = h.call(cookie, "POST", "/api/tests", body)
+    assert res.status == 201
+    return str(res.json["id"])
+
+
+def import_into(h: Harness, cookie: str, tid: str, data: Any) -> Any:
+    return h.call(cookie, "POST", f"/api/tests/{tid}/import", {"json": json.dumps(data)})
+
+
+def imported(h: Harness, cookie: str) -> str:
+    tid = new_manual(h, cookie)
+    assert import_into(h, cookie, tid, example()).status == 200
+    return tid
 
 
 def test_validate_returns_errors_and_summary(h: Harness, t: dict[str, str]) -> None:
@@ -117,14 +131,14 @@ def test_validate_returns_errors_and_summary(h: Harness, t: dict[str, str]) -> N
     assert ok.status == 200 and ok.json["ok"] and ok.json["summary"]["questions"] == 12
     bad = h.call(t["a"], "POST", "/api/tests/import/validate", {"json": "{}"})
     assert bad.status == 200 and not bad.json["ok"] and bad.json["errors"]
-    assert do_import(h, t["a"], {}).status == 400
+    assert import_into(h, t["a"], new_manual(h, t["a"]), {}).status == 400
 
 
-def test_import_creates_manual_test_with_unreviewed_key(h: Harness, t: dict[str, str]) -> None:
-    res = do_import(h, t["a"], example())
-    assert res.status == 201
-    tid = res.json["id"]
-    assert res.json["authoring"] == "manual"
+def test_import_fills_manual_test_with_unreviewed_key(h: Harness, t: dict[str, str]) -> None:
+    tid = new_manual(h, t["a"])
+    res = import_into(h, t["a"], tid, example())
+    assert res.status == 200
+    assert res.json["authoring"] == "manual" and res.json["title"] == "Typed"  # details stay the teacher's
     test = h.call(t["a"], "GET", f"/api/tests/{tid}").json
     assert sum(len(s["questions"]) for s in test["sections"]) == 12
     grouped = [q for s in test["sections"] for q in s["questions"] if q["answerGroup"]]
@@ -140,7 +154,7 @@ def test_import_creates_manual_test_with_unreviewed_key(h: Harness, t: dict[str,
 
 
 def test_manual_editor_save_keeps_answer_groups(h: Harness, t: dict[str, str]) -> None:
-    tid = do_import(h, t["a"], example()).json["id"]
+    tid = imported(h, t["a"])
     sections = h.call(t["a"], "GET", f"/api/tests/{tid}").json["sections"]
     keep = ("number", "questionType", "wordLimit", "prompt", "options", "answerGroup")
     body = {
@@ -159,25 +173,38 @@ def test_manual_editor_save_keeps_answer_groups(h: Harness, t: dict[str, str]) -
     assert grouped == [(9, 9), (10, 9)]
 
 
-def test_reimport_replaces_draft_and_published_is_locked(h: Harness, t: dict[str, str]) -> None:
-    tid = do_import(h, t["a"], example()).json["id"]
-    smaller = example()
-    smaller["sections"] = smaller["sections"][:1]
-    smaller["test"]["title"] = "Smaller"
-    res = h.call(t["a"], "POST", f"/api/tests/{tid}/reimport", {"json": json.dumps(smaller)})
+def test_import_again_appends_after_existing_questions(h: Harness, t: dict[str, str]) -> None:
+    tid = imported(h, t["a"])
+    res = import_into(h, t["a"], tid, example())
     assert res.status == 200
-    assert res.json["title"] == "Smaller" and len(res.json["sections"]) == 1
+    numbers = [q["number"] for s in res.json["sections"] for q in s["questions"]]
+    assert numbers == list(range(1, 25))
+    assert [s["position"] for s in res.json["sections"]] == [1, 2, 3, 4]
+    questions = [q for s in res.json["sections"] for q in s["questions"]]
+    grouped = [(q["number"], q["answerGroup"]) for q in questions if q["answerGroup"]]
+    assert grouped == [(9, 9), (10, 9), (21, 21), (22, 21)]
+    blanks = next(q["prompt"] for q in questions if q["number"] == 19)
+    assert "(19) ________" in blanks and "(7)" not in blanks
     key = h.call(t["a"], "GET", f"/api/tests/{tid}/key").json
-    assert [i["number"] for i in key["items"]] == list(range(1, 8))
+    assert [i["number"] for i in key["items"]] == list(range(1, 25))
+    assert [i["number"] for i in key["items"] if i["flagged"]] == [12, 24]
+
+
+def test_import_refused_on_pdf_test_and_published(h: Harness, t: dict[str, str]) -> None:
+    body = {"title": "P", "sourceType": "self_authored", "testType": "course", "durationMinutes": 30}
+    pdf = h.call(t["a"], "POST", "/api/tests", body).json["id"]
+    assert import_into(h, t["a"], pdf, example()).status == 409
+    tid = imported(h, t["a"])
+    key = h.call(t["a"], "GET", f"/api/tests/{tid}/key").json
     items = [{"number": i["number"], "answers": i["answers"]} for i in key["items"]]
     assert h.call(t["a"], "POST", f"/api/tests/{tid}/key/review", {"items": items}).status == 200
     assert h.call(t["a"], "POST", f"/api/tests/{tid}/publish").status == 200
-    again = h.call(t["a"], "POST", f"/api/tests/{tid}/reimport", {"json": json.dumps(smaller)})
-    assert again.status == 409
+    assert import_into(h, t["a"], tid, example()).status == 409
+    assert import_into(h, t["b"], tid, example()).status == 404
 
 
 def test_student_room_gets_text_without_answers(h: Harness, t: dict[str, str]) -> None:
-    tid = do_import(h, t["a"], example()).json["id"]
+    tid = imported(h, t["a"])
     key = h.call(t["a"], "GET", f"/api/tests/{tid}/key").json
     items = [{"number": i["number"], "answers": i["answers"]} for i in key["items"]]
     assert h.call(t["a"], "POST", f"/api/tests/{tid}/key/review", {"items": items}).status == 200

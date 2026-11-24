@@ -62,9 +62,7 @@ def w(db: TestDb) -> World:
             "insert into page_texts (asset_id, teacher_id, page, text) values (%s, %s, 1, 'x')",
             (asset, a),
         )
-        tx.execute(
-            "insert into ocr_jobs (asset_id, teacher_id) values (%s, %s)", (asset, a)
-        )
+        tx.execute("insert into ocr_jobs (asset_id, teacher_id) values (%s, %s)", (asset, a))
         version = tx.execute(
             "insert into keys.answer_key_versions (test_id, teacher_id, version) "
             "values (%s, %s, 1) returning id",
@@ -155,9 +153,7 @@ def test_question_must_match_section_test(db: TestDb, w: World) -> None:
             )
 
 
-@pytest.mark.parametrize(
-    ("test_type", "minutes"), [("bad", 10), ("course", 301), ("course", 0)]
-)
+@pytest.mark.parametrize(("test_type", "minutes"), [("bad", 10), ("course", 301), ("course", 0)])
 def test_test_check_constraints(db: TestDb, w: World, test_type: str, minutes: int) -> None:
     with pytest.raises(psycopg.errors.CheckViolation), with_identity(db.app_pool, w.a) as tx:
         tx.execute(
@@ -306,8 +302,13 @@ def _version(tx: Any, w: World, number: int, approved: bool = False) -> UUID:
     row = tx.execute(
         """insert into keys.answer_key_versions (test_id, teacher_id, version, approved_at, approved_by)
            values (%s, %s, %s, %s, %s) returning id""",
-        (w.test_a, w.a.user_id, number, "2026-11-22" if approved else None,
-         w.a.user_id if approved else None),
+        (
+            w.test_a,
+            w.a.user_id,
+            number,
+            "2026-11-22" if approved else None,
+            w.a.user_id if approved else None,
+        ),
     ).fetchone()
     return row["id"]  # type: ignore[no-any-return]
 

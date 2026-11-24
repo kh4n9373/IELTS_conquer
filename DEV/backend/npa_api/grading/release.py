@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from ..explain.batch import chosen_reason, marked_choices
+
 
 @dataclass(frozen=True)
 class ReleaseFacts:
@@ -103,3 +105,35 @@ def build_result(row: dict[str, Any], *, released: bool) -> dict[str, Any]:
         out["bandLabel"] = "estimated"
         out["bandTableVersion"] = run["bandTableVersion"]
     return out
+
+
+def build_review(row: dict[str, Any], review: dict[str, Any], *, generating: bool) -> dict[str, Any]:
+    """Explicit allowlist, like `build_result`. `generating`: a job for this test is queued or running."""
+    marks = {i["number"]: i for i in row["items"]}
+    items = []
+    for q in review["questions"]:
+        mark = marks.get(q["number"], {})
+        stored = q["explanation"]
+        explanation, state = None, "none"
+        accepted = mark.get("accepted") or []
+        if stored is not None:
+            chosen = chosen_reason(stored["options"], q["type"], accepted, mark.get("given"))
+            explanation, state = {"correct": stored["correct"], "chosen": chosen}, "ready"
+        elif q["prompt"].strip() and q.get("hasKey") and generating:
+            state = "pending"
+        items.append(
+            {
+                "number": q["number"],
+                "type": q["type"],
+                "sectionTitle": q["sectionTitle"],
+                "prompt": q["prompt"],
+                "options": q["options"],
+                "choices": marked_choices(q["type"], q["options"], accepted, mark.get("given")),
+                "answer": mark.get("given"),
+                "correct": bool(mark.get("correct")),
+                "key": mark.get("accepted") or [],
+                "explanation": explanation,
+                "explanationState": state,
+            }
+        )
+    return {"released": True, "testTitle": row["testTitle"], "items": items}

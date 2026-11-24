@@ -1,4 +1,4 @@
-"""Import a Reading test from `panxg-exam/v1` JSON written by an AI, as a manual (typed) test."""
+"""Add questions from `panxg-exam/v1` JSON written by an AI to a manual (typed) test."""
 
 from pathlib import Path
 from typing import Annotated, Any
@@ -12,7 +12,7 @@ from ..core.db import Conn, with_identity, write_audit
 from ..core.http import Body, CtxDep, GuardedRoute, HttpError, IdentityDep, access
 from ..exams import schema_v1
 from ..exams.keys import draft_version
-from .tests import TEACHER, TEST_COLUMNS, detail, lock_test
+from .tests import TEACHER, detail, lock_test
 
 router = APIRouter(route_class=GuardedRoute)
 GUIDE = Path(__file__).parents[1] / "exams" / "panxg-exam-v1-ai-guide.md"
@@ -20,10 +20,6 @@ GUIDE = Path(__file__).parents[1] / "exams" / "panxg-exam-v1-ai-guide.md"
 
 class ImportBody(Body):
     json_text: Annotated[str, Field(max_length=schema_v1.MAX_JSON_BYTES, alias="json")]
-
-
-class ContentBody(Body):
-    content: dict[str, Any]
 
 
 def checked(body: ImportBody) -> tuple[schema_v1.ExamDoc | None, dict[str, Any]]:
@@ -37,13 +33,24 @@ def checked(body: ImportBody) -> tuple[schema_v1.ExamDoc | None, dict[str, Any]]
     return doc, report
 
 
-def write_doc(tx: Conn, test_id: UUID, teacher_id: UUID, doc: schema_v1.ExamDoc) -> None:
-    """Replaces sections, questions and key of a locked draft manual test in the caller's transaction."""
-    tx.execute("delete from sections where test_id = %s", (test_id,))
+def append_doc(tx: Conn, test_id: UUID, teacher_id: UUID, doc: schema_v1.ExamDoc) -> None:
+    """Adds the doc's sections after a locked draft's own, numbering its questions after the last one."""
+    last = tx.execute(
+        """select (select coalesce(max(number), 0) from questions where test_id = %s) as number,
+                  (select coalesce(max(position), 0) from sections where test_id = %s) as position""",
+        (test_id, test_id),
+    ).fetchone()
+    assert last is not None  # noqa: S101
+    if last["number"] + schema_v1.summary(doc)["questions"] > schema_v1.MAX_QUESTIONS:
+        raise HttpError(409, "too_many_questions")
     version = draft_version(tx, test_id, create=True)
     assert version is not None  # noqa: S101
-    tx.execute("delete from keys.answer_key_items where version_id = %s", (version["id"],))
-    for position, s in enumerate(schema_v1.to_manual(doc), start=1):
+    # Answers left behind by deleted questions must not land on the new numbers.
+    tx.execute(
+        "delete from keys.answer_key_items where version_id = %s and question_number > %s",
+        (version["id"], last["number"]),
+    )
+    for position, s in enumerate(schema_v1.to_manual(doc, last["number"]), start=last["position"] + 1):
         src = s["section"]
         created = tx.execute(
             """insert into sections (test_id, teacher_id, position, title, body, suggested_minutes,
@@ -92,29 +99,10 @@ def validate_import(body: ImportBody, ctx: CtxDep, identity: IdentityDep) -> Any
     return checked(body)[1]
 
 
-@router.post("/api/tests/import", status_code=201)
+@router.post("/api/tests/{id}/import")
 @access(TEACHER)
-def create_import(body: ImportBody, ctx: CtxDep, identity: IdentityDep) -> Any:
-    doc, report = checked(body)
-    if doc is None:
-        raise HttpError(400, "import_invalid")
-    t = doc.test
-    with with_identity(ctx.pool, identity) as tx:
-        row = tx.execute(
-            f"""insert into tests (teacher_id, title, test_type, source_type, duration_minutes,
-                  authoring)
-                values (%s, %s, %s, %s, %s, 'manual') returning {TEST_COLUMNS}""",  # noqa: S608
-            (identity.user_id, t.title, t.test_type, t.source_type, t.duration_minutes),
-        ).fetchone()
-        assert row is not None  # noqa: S101
-        write_doc(tx, row["id"], identity.user_id, doc)
-        write_audit(tx, action="test.import", entity="test", entity_id=row["id"], after=audit_after(doc))
-        return {**row, "warnings": report["warnings"]}
-
-
-@router.post("/api/tests/{id}/reimport")
-@access(TEACHER)
-def reimport(id: UUID, body: ImportBody, ctx: CtxDep, identity: IdentityDep) -> Any:
+def import_into(id: UUID, body: ImportBody, ctx: CtxDep, identity: IdentityDep) -> Any:
+    """Appends AI-filled questions to a manual draft; the test's own details stay as the teacher set them."""
     doc, _ = checked(body)
     if doc is None:
         raise HttpError(400, "import_invalid")
@@ -125,13 +113,6 @@ def reimport(id: UUID, body: ImportBody, ctx: CtxDep, identity: IdentityDep) -> 
         version = draft_version(tx, id, create=False)
         if version is not None and version["approvedAt"] is not None:
             raise HttpError(409, "test_locked")
-        t = doc.test
-        tx.execute(
-            """update tests set title = %s, test_type = %s, source_type = %s, duration_minutes = %s
-               where id = %s""",
-            (t.title, t.test_type, t.source_type, t.duration_minutes, id),
-        )
-        write_doc(tx, id, test["teacher_id"], doc)
-        write_audit(tx, action="test.reimport", entity="test", entity_id=id, after=audit_after(doc))
-        fresh = lock_test(tx, id)
-        return detail(tx, fresh)
+        append_doc(tx, id, test["teacher_id"], doc)
+        write_audit(tx, action="test.import", entity="test", entity_id=id, after=audit_after(doc))
+        return detail(tx, lock_test(tx, id))

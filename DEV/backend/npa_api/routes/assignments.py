@@ -178,6 +178,12 @@ def create_assignment(body: CreateBody, ctx: CtxDep, identity: IdentityDep) -> A
                 " values (%s, %s, %s)",
                 (created["id"], identity.user_id, student),
             )
+        # Explanations are written once per test, in the background; a queued job is not duplicated.
+        tx.execute(
+            "insert into explain_jobs (test_id, teacher_id) values (%s, %s)"
+            " on conflict (test_id) where state in ('queued', 'running') do nothing",
+            (body.testId, identity.user_id),
+        )
         write_audit(
             tx,
             action="assignment.create",

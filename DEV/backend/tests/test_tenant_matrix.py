@@ -42,8 +42,7 @@ MATRIX: dict[str, tuple[Any, int | None]] = {
     "GET /api/exam-schema/v1/ai-guide.md": (None, None),
     "GET /api/exam-schema/v1/schema.json": (None, None),
     "POST /api/tests/import/validate": ({"json": "{}"}, None),
-    "POST /api/tests/import": ({"json": "{}"}, None),
-    "POST /api/tests/{id}/reimport": ({"json": IMPORT_JSON}, 404),
+    "POST /api/tests/{id}/import": ({"json": IMPORT_JSON}, 404),
     "POST /api/tests": ({"title": "Matrix", **NEW_TEST}, None),
     "GET /api/tests/{id}": (None, 404),
     "PATCH /api/tests/{id}": ({"title": "Hacked"}, 404),
@@ -77,6 +76,7 @@ MATRIX: dict[str, tuple[Any, int | None]] = {
     "PUT /api/attempts/{id}/answers": ({"writerToken": "x", "items": []}, None),
     "POST /api/attempts/{id}/submit": ({"writerToken": "x"}, None),
     "GET /api/attempts/{id}/result": (None, 404),
+    "GET /api/attempts/{id}/review": (None, 404),
 }
 
 

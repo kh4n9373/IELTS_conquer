@@ -1,5 +1,5 @@
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -19,9 +19,11 @@ from ..core.http import (
     domain_errors,
     storable,
 )
-from ..grading.release import build_result, facts_of, is_released, pending
+from ..grading.release import build_result, build_review, facts_of, is_released, pending
 from ..grading.settle import GRACE_SECONDS, settle_attempt, settle_if_due
 from .test_files import URL_SECONDS, unavailable
+
+REQUEUE_AFTER = timedelta(hours=1)  # one safety-net job per test per hour, however often the page polls
 
 router = APIRouter(route_class=GuardedRoute)
 STUDENT: tuple[Role, ...] = ("student",)
@@ -168,4 +170,31 @@ def result(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
         body = pending(row, student=student)
     else:
         body = build_result(row, released=released)
+    return JSONResponse(body, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/api/attempts/{id}/review")
+@access(BOTH)
+def review(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
+    """Questions with explanations. Same gate as `result`: nothing before release."""
+    _result_row(ctx, identity, id)
+    settle_if_due(ctx, id)
+    row = _result_row(ctx, identity, id)
+    student = identity.role == "student"
+    if row["run"] is None or (student and not is_released(facts_of(row), ctx.now())):
+        return JSONResponse(pending(row, student=student), headers={"Cache-Control": "no-store"})
+    with ctx.pool.connection() as conn:
+        found = conn.execute("select app.attempt_review_row(%s) as r", (id,)).fetchone()
+        assert found is not None  # noqa: S101
+        data = found["r"]
+        questions = data["questions"]
+        missing = any(q["prompt"].strip() and q["hasKey"] and q["explanation"] is None for q in questions)
+        last = data["lastJobAt"]
+        cooled = last is None or datetime.fromisoformat(last) < ctx.now() - REQUEUE_AFTER
+        generating = data["jobActive"]
+        if missing and not generating and cooled:
+            # Safety net: a failed or never-queued job is retried when someone reads it, once per cooldown.
+            conn.execute("select app.explain_enqueue(%s)", (data["testId"],))
+            generating = True
+    body = build_review(row, data, generating=generating)
     return JSONResponse(body, headers={"Cache-Control": "no-store"})

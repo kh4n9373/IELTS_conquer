@@ -398,12 +398,21 @@ def main() -> None:
     store = create_store()
     if store is None:
         sys.exit("Storage settings are incomplete")
-    pool = open_pool(values["DATABASE_URL"], max_size=2)
+    from ..explain import llm  # imported here: explain.worker imports this module
+    from ..explain import worker as explain
+
+    pool = open_pool(values["DATABASE_URL"], max_size=4)
+    clock = lambda: datetime.now(UTC)  # noqa: E731
     try:
         with httpx.Client(follow_redirects=False) as client:
             provider = PaddleOcrProvider(values["BAIDU_OCR_ACCESS_TOKEN"], client)
             model = os.environ.get("GEMINI_MODEL") or DEFAULT_MODEL
             parser = GeminiParser(values["GEMINI_API_KEY"], client, model)
-            run_loop(pool, store, provider, stop, lambda: datetime.now(UTC), parser=parser)
+            explainer = threading.Thread(
+                target=explain.run_loop, args=(pool, llm.from_env(client), stop, clock), daemon=True
+            )
+            explainer.start()
+            run_loop(pool, store, provider, stop, clock, parser=parser)
+            explainer.join(timeout=30)
     finally:
         pool.close()
