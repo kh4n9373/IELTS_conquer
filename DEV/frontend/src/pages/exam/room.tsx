@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
+import { ExamContentView } from '../../components/exam-content';
 import { PdfViewer } from '../../components/pdf-viewer';
 import { ErrorAlert, LangSwitch, Loading } from '../../components/ui';
 import { createAnswerQueue, type AnswerQueue, type PendingAnswer, type QueueSnapshot } from '../../lib/answer-queue';
@@ -346,6 +347,9 @@ function Room({ attemptId, room, tokenRef, clockRef, queue, restored }: RoomProp
           </span>
         </div>
         <section className="exam-paper" aria-label={t.exam.pdfArea}>
+          {room.authoringMode === 'composed' ? (
+            <ExamContentView section={room.content?.sections[passage]} />
+          ) : (
           <PdfViewer
             testId={attemptId}
             hasPdf={hasPdf}
@@ -354,6 +358,7 @@ function Room({ attemptId, room, tokenRef, clockRef, queue, restored }: RoomProp
             page={pdfPage}
             onPageChange={remember}
           />
+          )}
         </section>
         <AnswerPanel
           questions={shownQuestions}

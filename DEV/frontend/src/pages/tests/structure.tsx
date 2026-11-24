@@ -1,3 +1,4 @@
+import { ContentEditorPage } from './content';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
@@ -69,6 +70,11 @@ function toStructure(drafts: DraftSection[]): { sections: StructureSection[] } |
 }
 
 export function StructurePage() {
+  const composed = useTest().test.authoringMode === 'composed';
+  return composed ? <ContentEditorPage /> : <PdfStructurePage />;
+}
+
+function PdfStructurePage() {
   const { t } = useI18n();
   const { test } = useTest();
   const client = useQueryClient();

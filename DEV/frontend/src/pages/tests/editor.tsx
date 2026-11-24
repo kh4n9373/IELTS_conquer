@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
-import { Link, NavLink, Outlet, useLocation, useNavigate, useOutletContext, useParams } from 'react-router';
+import { Link, NavLink, Outlet, useLocation, useNavigate, useOutletContext, useParams, useSearchParams } from 'react-router';
 import { pdfUrlKey } from '../../components/pdf-viewer';
 import { ErrorAlert, Field, Icon, Loading, Notice, order, PageHead } from '../../components/ui';
 import { useI18n } from '../../lib/i18n';
+import { ImportPanel } from './import';
 import { testsApi, type CreateTest, type SourceType, type TestDetail, type TestType } from '../../lib/tests-api';
 
 export type EditorContext = { test: TestDetail };
@@ -147,6 +148,9 @@ function DetailsForm({ test }: { test?: TestDetail }) {
         </div>
       </div>
       <div className="stack">
+        {test?.authoringMode === 'composed' ? (
+          <p className="muted">{t.tests.content.noPdf}</p>
+        ) : (
         <div className="field">
           <label htmlFor="pdf">{t.tests.form.pdf}</label>
           <div className={`drop${uploadFailed ? ' is-bad' : ''}`}>
@@ -155,10 +159,11 @@ function DetailsForm({ test }: { test?: TestDetail }) {
             {pdf && <span className="muted">{t.tests.form.pdfChange}</span>}
           </div>
         </div>
+        )}
         <ErrorAlert error={save.error} />
         {uploadFailed && <p className="muted">{t.tests.form.uploadHelp}</p>}
         {save.isSuccess && test !== undefined && <Notice>{t.tests.form.saved}</Notice>}
-        <p className="muted">{t.tests.form.ocrNotice}</p>
+        {test?.authoringMode !== 'composed' && <p className="muted">{t.tests.form.ocrNotice}</p>}
         {locked && <p className="muted">{t.tests.locked}</p>}
         <button className="primary-wide" disabled={save.isPending || locked}>
           <span>{save.isPending ? t.tests.form.working : test === undefined ? t.tests.next : t.tests.form.save}</span>
@@ -169,8 +174,13 @@ function DetailsForm({ test }: { test?: TestDetail }) {
   );
 }
 
+/** Create: pick PDF or composed first. Composed tests come from AI JSON for now. */
 export function NewTestPage() {
   const { t } = useI18n();
+  const m = t.tests.mode;
+  const [params, setParams] = useSearchParams();
+  const mode = params.get('mode') === 'composed' ? 'composed' : 'pdf';
+  const pick = (next: 'pdf' | 'composed') => setParams(next === 'pdf' ? {} : { mode: next }, { replace: true });
   return (
     <>
       <Link className="back-link in" style={order(0)} to="/tests" viewTransition>
@@ -178,7 +188,36 @@ export function NewTestPage() {
         <span>{t.tests.all}</span>
       </Link>
       <PageHead title={t.tests.titles.create} />
-      <div className="in" style={order(3)}><DetailsForm /></div>
+      <div className="in stack" style={order(3)}>
+        <fieldset className="mode-pick">
+          <legend>{m.label}</legend>
+          {(['pdf', 'composed'] as const).map((kind) => (
+            <button key={kind} type="button" className={`type-option${mode === kind ? ' on' : ''}`} aria-pressed={mode === kind} onClick={() => pick(kind)}>
+              <strong>{m[kind]}</strong>
+              <span>{kind === 'pdf' ? m.pdfBody : m.composedBody}</span>
+            </button>
+          ))}
+        </fieldset>
+        {mode === 'pdf' ? (
+          <DetailsForm />
+        ) : (
+          <>
+            <fieldset className="mode-pick">
+              <legend>{m.source}</legend>
+              <button type="button" className="type-option on" aria-pressed="true">
+                <strong>{m.fromAi}</strong>
+                <span>{m.fromAiBody}</span>
+              </button>
+              <button type="button" className="type-option" disabled>
+                <strong>{m.scratch}</strong>
+                <span>{m.scratchBody}</span>
+              </button>
+            </fieldset>
+            <p className="muted">{t.tests.importAi.lede}</p>
+            <ImportPanel />
+          </>
+        )}
+      </div>
     </>
   );
 }

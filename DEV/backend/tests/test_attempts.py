@@ -201,7 +201,7 @@ def test_room_uses_allowlisted_fields_only(h: Harness, room: Room) -> None:
         view = h.call(s.cookie, "GET", f"/api/attempts/{attempt}").json
     assert set(view) == {
         "title", "durationMinutes", "pageCount", "questionCount", "mode", "status", "deadlineAt",
-        "serverNow", "sections", "questions", "answers",
+        "serverNow", "sections", "questions", "answers", "authoringMode", "content",
     }  # fmt: skip
     assert set(view["questions"][0]) == {"number", "type", "wordLimit", "group"}
 

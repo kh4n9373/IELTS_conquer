@@ -22,14 +22,16 @@ def readiness(
         if code not in blockers:
             blockers.append(code)
 
+    # A composed (imported) test shows its text in the room: no PDF and no page mapping.
+    composed = test.get("authoring_mode") == "composed"
     pdf = next((a for a in assets if a["kind"] == "student_pdf"), None)
-    if pdf is None:
+    if pdf is None and not composed:
         add("missing_pdf")
     if not sections:
         add("no_sections")
 
     page_count = pdf.get("page_count") if pdf is not None else None
-    if pdf is not None:
+    if pdf is not None and not composed:
         for section in sections:
             pages = [*section["passage_pages"], *section["question_pages"]]
             # An unknown page count cannot confirm any mapped page.

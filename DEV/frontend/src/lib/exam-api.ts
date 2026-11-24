@@ -1,3 +1,4 @@
+import type { ExamContent } from './tests-api';
 import { api } from './api';
 import type { QuestionType } from './tests-api';
 
@@ -71,6 +72,8 @@ export type ExamRoom = {
   title: string;
   durationMinutes: number;
   pageCount: number | null;
+  authoringMode?: 'pdf' | 'composed';
+  content?: ExamContent | null;
   questionCount: number;
   mode: AssignmentMode;
   status: AttemptStatus;

@@ -22,7 +22,8 @@ MAX_SECTIONS = 10
 MAX_QUESTIONS = 200
 
 TEST_COLUMNS = """id, title, test_type as "testType", source_type as "sourceType", status,
-  duration_minutes as "durationMinutes", published_at as "publishedAt", created_at as "createdAt"
+  duration_minutes as "durationMinutes", authoring_mode as "authoringMode",
+  published_at as "publishedAt", created_at as "createdAt"
 """
 PATCH_COLUMNS = {
     "title": "title",
@@ -274,6 +275,8 @@ def put_structure(id: UUID, body: StructureBody, ctx: CtxDep, identity: Identity
         # The test is locked first: inserting before this would let unique-key errors
         # reveal another tenant's structure.
         test = lock_test(tx, id, draft=True)
+        if test["authoringMode"] == "composed":
+            raise HttpError(409, "composed_structure")  # imported structure changes go through re-import
         old_shape = {
             q["number"]: (q["question_type"], q["word_limit"])
             for q in tx.execute(
@@ -340,7 +343,9 @@ def put_structure(id: UUID, body: StructureBody, ctx: CtxDep, identity: Identity
 
 def blockers_of(tx: Conn, test_id: UUID) -> list[str]:
     """Publish blockers for a test, read inside the caller's transaction."""
-    test = tx.execute("select test_type, duration_minutes from tests where id = %s", (test_id,)).fetchone()
+    test = tx.execute(
+        "select test_type, duration_minutes, authoring_mode from tests where id = %s", (test_id,)
+    ).fetchone()
     if test is None:
         raise not_found()
     assets = tx.execute("select kind, page_count from test_assets where test_id = %s", (test_id,)).fetchall()

@@ -1,5 +1,6 @@
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -11,6 +12,9 @@ from npa_api.app import access_table
 # Every route must appear here. The second value is the status Teacher B must get on
 # Teacher A's resource; None means the route has no tenant-owned path resource.
 NEW_TEST = {"sourceType": "self_authored", "testType": "course", "durationMinutes": 60}
+GUIDE = Path(__file__).parents[1] / "npa_api/exams/panxg-exam-v1-ai-guide.md"
+IMPORT_JSON = GUIDE.read_text("utf-8").split("```json\n")[1].split("```")[0]
+
 MATRIX: dict[str, tuple[Any, int | None]] = {
     "POST /api/auth/login": (None, None),
     "POST /api/auth/logout": (None, None),
@@ -35,6 +39,13 @@ MATRIX: dict[str, tuple[Any, int | None]] = {
     "GET /api/consents": (None, None),
     "POST /api/consents": ({"purpose": "ai_processing", "granted": True}, None),
     "GET /api/tests": (None, None),
+    "GET /api/exam-schema/v1/ai-guide.md": (None, None),
+    "GET /api/exam-schema/v1/schema.json": (None, None),
+    "POST /api/tests/import/validate": ({"json": "{}"}, None),
+    "POST /api/tests/import": ({"json": "{}"}, None),
+    "POST /api/tests/{id}/reimport": ({"json": IMPORT_JSON}, 404),
+    "GET /api/tests/{id}/content": (None, 404),
+    "PUT /api/tests/{id}/content": ({"content": {"sections": []}}, 404),
     "POST /api/tests": ({"title": "Matrix", **NEW_TEST}, None),
     "GET /api/tests/{id}": (None, 404),
     "PATCH /api/tests/{id}": ({"title": "Hacked"}, 404),

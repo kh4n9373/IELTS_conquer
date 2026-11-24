@@ -387,3 +387,40 @@ button.disclosure-toggle::before { background: var(--paper-2); }
   *, *::before, *::after { animation-duration: 0.001ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
   ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
 }
+
+/* Imported (composed) test text: passage and question groups, shared by the exam room and preview. */
+.xc { flex: 1; min-height: 0; overflow: auto; background: #fff; color: #111; border: 1px solid var(--line); padding: 24px clamp(16px, 4vw, 40px); font-family: var(--serif); line-height: 1.6; }
+.xc h2 { font-size: 1.35rem; margin: 0 0 12px; }
+.xc h3 { font-family: var(--sans); font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 6px; }
+.xc-eyebrow { font-family: var(--sans); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.7; margin: 0 0 4px; }
+.xc-para { margin: 0 0 12px; white-space: pre-wrap; }
+.xc-label { font-family: var(--sans); margin-right: 8px; }
+.xc-groups { border-top: 2px solid #111; margin-top: 24px; padding-top: 16px; display: grid; gap: 24px; }
+.xc-instructions { font-style: italic; margin: 0 0 8px; white-space: pre-wrap; }
+.xc-prompt { font-weight: 600; margin: 0 0 8px; }
+.xc-text { white-space: pre-wrap; margin: 8px 0; }
+.xc-options { list-style: none; padding: 0; margin: 6px 0 10px; display: grid; gap: 4px; }
+.xc-options b { font-family: var(--sans); display: inline-block; min-width: 28px; }
+.xc-questions { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 10px; }
+.xc-questions li { display: grid; grid-template-columns: 32px 1fr; gap: 8px; }
+.xc-questions p { margin: 0; }
+.xc-no { font-family: var(--sans); font-weight: 700; border: 1px solid #111; height: 24px; display: inline-grid; place-items: center; font-size: 0.85rem; }
+.xc-blank { white-space: nowrap; }
+.xc-blank b { font-family: var(--sans); border: 1px solid #111; padding: 0 5px; margin-right: 2px; font-size: 0.85rem; }
+.xc-table-wrap { overflow-x: auto; }
+.xc-table { border-collapse: collapse; min-width: 100%; margin: 8px 0; }
+.xc-table th, .xc-table td { border: 1px solid #111; padding: 6px 10px; text-align: left; vertical-align: top; }
+
+/* Import from AI page */
+.import-page { display: grid; gap: 20px; }
+.import-steps { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.import-steps > div { border: 1px solid var(--line); padding: 16px; display: grid; gap: 8px; align-content: start; }
+.import-page textarea { width: 100%; min-height: 260px; font-family: ui-monospace, monospace; font-size: 0.85rem; padding: 12px; }
+.import-issues { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.import-issues li { border-left: 3px solid var(--line); padding: 4px 10px; }
+.import-issues li.is-error { border-left-color: #c8102e; }
+.import-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.content-editor { display: grid; gap: 20px; }
+.content-editor fieldset { border: 1px solid var(--line); padding: 16px; display: grid; gap: 10px; min-width: 0; }
+.content-editor textarea { width: 100%; min-height: 80px; padding: 8px; font: inherit; }
+.content-editor label { display: grid; gap: 4px; }

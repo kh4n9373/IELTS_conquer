@@ -48,6 +48,7 @@ export type TestSummary = {
   durationMinutes: number;
   publishedAt: string | null;
   createdAt: string;
+  authoringMode: 'pdf' | 'composed';
 };
 
 export type JobState = { state: 'queued' | 'running' | 'done' | 'failed'; errorCode: string | null };
@@ -74,8 +75,10 @@ export type TestDetail = TestSummary & {
 export type KeyItem = {
   number: number;
   answers: string[];
-  origin: 'manual' | 'text_layer' | 'scan';
+  origin: 'manual' | 'text_layer' | 'scan' | 'import';
   flagged: boolean;
+  /** Why the AI was unsure, for imported answers. */
+  note?: string | null;
   reviewed: boolean;
   sourcePage: number | null;
   /** [x0, y0, x1, y1] as fractions of the displayed page, origin top-left. */
@@ -107,6 +110,34 @@ export type StructureSection = {
 
 export type CreateTest = { title: string; sourceType: SourceType; testType: TestType; durationMinutes: number };
 
+/** Student-safe text of an imported (composed) test. Never holds answers. */
+export type ContentOption = { key: string; text: string };
+export type ContentQuestion = { number: number; prompt: string | null; options: ContentOption[] | null };
+export type ContentGroup = {
+  type: QuestionType;
+  instructions: string;
+  word_limit: number | null;
+  options: ContentOption[];
+  options_reusable: boolean;
+  select_count: number;
+  prompt: string | null;
+  content: string | null;
+  questions: ContentQuestion[];
+};
+export type ContentSection = {
+  title: string;
+  passage: { title: string | null; paragraphs: { label: string | null; text: string }[] };
+  groups: ContentGroup[];
+};
+export type ExamContent = { sections: ContentSection[] };
+export type ImportIssue = { code: string; path: string; number: number | null; message: string };
+export type ImportReport = {
+  ok: boolean;
+  errors: ImportIssue[];
+  warnings: ImportIssue[];
+  summary: { title: string; testType: TestType; sections: number; questions: number; byType: Record<string, number>; uncertain: number } | null;
+};
+
 const base = (id: string) => `/api/tests/${id}`;
 
 export const testsApi = {
@@ -131,4 +162,10 @@ export const testsApi = {
   uploadKeySource: (id: string, file: File) => api.upload<KeySourceInfo>(`${base(id)}/key-source`, file),
   importKey: (id: string) => api.post<ImportCounts>(`${base(id)}/key/import`),
   scanKey: (id: string) => api.post<JobState>(`${base(id)}/key/scan`),
+  // Import from AI (panxg-exam/v1).
+  validateImport: (json: string) => api.post<ImportReport>('/api/tests/import/validate', { json }),
+  createImport: (json: string) => api.post<TestSummary>('/api/tests/import', { json }),
+  reimport: (id: string, json: string) => api.post<TestDetail>(`${base(id)}/reimport`, { json }),
+  getContent: (id: string) => api.get<{ content: ExamContent }>(`${base(id)}/content`),
+  putContent: (id: string, content: ExamContent) => api.put<{ content: ExamContent }>(`${base(id)}/content`, { content }),
 };

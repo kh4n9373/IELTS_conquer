@@ -23,6 +23,7 @@ from .routes import (
     consent,
     invites,
     test_files,
+    test_import,
     test_keys,
     tests,
 )
@@ -32,6 +33,12 @@ BODY_LIMIT = 64 * 1024
 # Only these exact paths take a large raw PDF body; the upload handler enforces its own limit.
 UPLOAD_PATH = re.compile(
     r"/api/tests/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/(pdf|key-source)"
+)
+
+# Imported exam JSON (1 MB of text, escaped inside a JSON string) and its step-2 edits.
+IMPORT_LIMIT = 3 * 1024 * 1024
+IMPORT_PATH = re.compile(
+    r"/api/tests/(import(/validate)?|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/(reimport|content))"
 )
 
 
@@ -49,6 +56,7 @@ class BodyLimit:
         if scope["method"] == "PUT" and UPLOAD_PATH.fullmatch(scope["path"]):
             await self.app(scope, receive, send)
             return
+        limit = IMPORT_LIMIT if IMPORT_PATH.fullmatch(scope["path"]) else self.limit
         messages: list[Message] = []
         size = 0
         while True:
@@ -57,7 +65,7 @@ class BodyLimit:
             if message["type"] != "http.request":
                 break
             size += len(message.get("body", b""))
-            if size > self.limit:
+            if size > limit:
                 response = JSONResponse({"error": "bad_request"}, status_code=413)
                 await response(scope, receive, send)
                 return
@@ -123,6 +131,7 @@ def build_app(
         invites,
         consent,
         tests,
+        test_import,
         test_keys,
         test_files,
         assignments,

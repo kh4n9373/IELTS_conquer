@@ -155,6 +155,7 @@ export function KeyPage() {
                       </td>
                       <td className="muted">
                         {item && has ? `${t.tests.key.origin[item.origin]}${item.sourcePage ? `, ${t.tests.key.page(item.sourcePage)}` : ''}` : ''}
+                        {item?.note && item.flagged && <span className="key-note"> · {t.tests.key.aiNote}: {item.note}</span>}
                       </td>
                       <td>
                         <button

@@ -66,7 +66,7 @@ def load_key(tx: Conn, test_id: UUID) -> dict[str, Any]:
     if version is None:
         return {"version": None, "approvedAt": None, "items": []}
     items = tx.execute(
-        """select question_number as number, answers, origin, flagged,
+        """select question_number as number, answers, origin, flagged, note,
                   reviewed_at is not null as reviewed, reviewed_at as "reviewedAt",
                   source_page as "sourcePage", source_bbox as "sourceBbox"
            from keys.answer_key_items where version_id = %s order by question_number""",
