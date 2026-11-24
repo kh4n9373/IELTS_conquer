@@ -11,7 +11,7 @@ type CheckId = 'pdf' | 'pages' | 'questions' | 'answers' | 'reviewed' | 'ielts';
 const BLOCKS: Record<CheckId, string[]> = {
   pdf: ['missing_pdf'],
   pages: ['no_sections', 'page_out_of_range'],
-  questions: ['question_gap', 'missing_type'],
+  questions: ['no_sections', 'question_gap', 'missing_type', 'incomplete_question'],
   answers: ['missing_answer'],
   reviewed: ['unreviewed_answer'],
   ielts: ['ielts_shape'],
@@ -40,7 +40,7 @@ export function PublishPage() {
   if (readiness.isError) return <ErrorAlert error={readiness.error} />;
   const blockers = readiness.data.blockers;
   const ready = blockers.length === 0;
-  const checks = (Object.keys(BLOCKS) as CheckId[]).filter((id) => id !== 'ielts' || test.testType === 'ielts_standard');
+  const checks = (Object.keys(BLOCKS) as CheckId[]).filter((id) => (id !== 'ielts' || test.testType === 'ielts_standard') && (test.authoring === 'pdf' || (id !== 'pdf' && id !== 'pages')));
   const title = test.status === 'published' ? t.tests.publish.done : test.status === 'archived' ? t.tests.publish.archived : ready ? t.tests.publish.ready : t.tests.publish.blocked;
 
   return (

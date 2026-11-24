@@ -8,6 +8,7 @@ QuestionType = Literal[
     "matching_information",
     "sentence_endings",
     "multiple_choice",
+    "multiple_choice_multi",
     "tfng",
     "ynng",
     "table_completion",
@@ -25,8 +26,10 @@ _FIXED: dict[str, QuestionGroup] = {
     "matching_information": "matching",
     "sentence_endings": "matching",
     "multiple_choice": "multiple_choice",
+    "multiple_choice_multi": "multiple_choice",
     "tfng": "tfng",
     "ynng": "tfng",
 }
 
+QUESTION_TYPES: tuple[str, ...] = get_args(QuestionType)
 QUESTION_GROUPS: dict[str, QuestionGroup] = {t: _FIXED.get(t, "completion") for t in get_args(QuestionType)}

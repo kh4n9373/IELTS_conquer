@@ -59,8 +59,13 @@ def pending(row: dict[str, Any], *, student: bool) -> dict[str, Any]:
     at = datetime.fromisoformat(expected).astimezone(UTC).isoformat()
     done = row["finalizedAt"]
     submitted = datetime.fromisoformat(done).astimezone(UTC).isoformat() if done else None
-    return {"released": False, "status": status, "expectedAt": at, "testTitle": row["testTitle"],
-            "submittedAt": submitted}
+    return {
+        "released": False,
+        "status": status,
+        "expectedAt": at,
+        "testTitle": row["testTitle"],
+        "submittedAt": submitted,
+    }
 
 
 def build_result(row: dict[str, Any], *, released: bool) -> dict[str, Any]:

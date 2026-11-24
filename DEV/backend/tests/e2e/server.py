@@ -3,6 +3,7 @@
 import hashlib
 import os
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -90,6 +91,49 @@ try:
                 (body["testId"],),
             )
         return {"ok": True}
+
+    @app.post("/api/e2e/run-worker")
+    async def e2e_run_worker(request: Request) -> dict[str, Any]:
+        """One worker pass. Text-layer PDFs need no OCR; the parser is a fixed reply unless `live`
+        asks for the real Gemini call (only when GEMINI_API_KEY is set for this test server)."""
+        import httpx
+
+        from npa_api.exams.structure import StructureBody
+        from npa_api.ocr.gemini import GeminiParser
+        from npa_api.ocr.worker import run_once
+
+        body = await request.json()
+
+        from npa_api.ocr.provider import OcrPage, OcrStatus
+
+        with db.owner_pool.connection() as conn:
+            row = conn.execute(
+                """select a.page_count from ocr_jobs j join test_assets a on a.id = j.asset_id
+                   where j.state = 'queued' order by j.created_at limit 1"""
+            ).fetchone()
+        count = row["page_count"] if row else 1
+
+        class BlankOcr:
+            """Stands in for OCR on image-only PDFs: every page reads as empty text."""
+
+            def submit(self, path: Any) -> str:
+                return "e2e-job"
+
+            def status(self, job_id: str) -> OcrStatus:
+                return OcrStatus(job_id=job_id, state="done", result_url="https://e2e.invalid/r")
+
+            def pages(self, status: OcrStatus) -> list[OcrPage]:
+                return [OcrPage(page=n, text="", lines=[]) for n in range(1, count + 1)]
+
+        def fixed(rows: Any) -> StructureBody:
+            return StructureBody.model_validate(body["structure"], strict=False)
+
+        with httpx.Client() as client:
+            parser: Any = GeminiParser(os.environ["GEMINI_API_KEY"], client) if body.get("live") else fixed
+            with db.owner_pool.connection() as conn:
+                conn.execute("update ocr_jobs set lease_until = null")
+            worked = run_once(db.app_pool, store, BlankOcr(), lambda: datetime.now(UTC), parser=parser)  # type: ignore[arg-type]
+        return {"worked": worked}
 
     @app.post("/api/e2e/expire-attempts")
     def e2e_expire_attempts() -> dict[str, int]:

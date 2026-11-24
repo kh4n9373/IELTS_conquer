@@ -13,6 +13,7 @@ ErrorCode = Literal[
     "bad_result",
     "storage_error",
     "lease_expired",
+    "parse_failed",
 ]
 
 

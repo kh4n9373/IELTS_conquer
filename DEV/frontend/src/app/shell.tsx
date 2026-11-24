@@ -75,6 +75,8 @@ export function Shell() {
   if (me.isError) return <main className="page-error"><ErrorAlert error={me.error} /></main>;
   if (!me.data) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
 
+  // The exam room is the whole screen: no app bar, so nothing else competes during the test.
+  if (location.pathname.startsWith('/exam/')) return <Outlet />;
   const { displayName, role } = me.data;
   return (
     <div className="app">

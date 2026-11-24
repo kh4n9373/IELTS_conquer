@@ -2,6 +2,7 @@ import { api } from './api';
 
 export type TestType = 'ielts_standard' | 'course';
 export type SourceType = 'self_authored' | 'licensed' | 'commercial' | 'other';
+export type Authoring = 'pdf' | 'manual';
 export type TestStatus = 'draft' | 'published' | 'archived';
 
 export const QUESTION_TYPES = [
@@ -10,6 +11,7 @@ export const QUESTION_TYPES = [
   'matching_information',
   'sentence_endings',
   'multiple_choice',
+  'multiple_choice_multi',
   'tfng',
   'ynng',
   'table_completion',
@@ -29,6 +31,7 @@ export const GROUP_OF: Record<QuestionType, QuestionGroup> = {
   matching_information: 'matching',
   sentence_endings: 'matching',
   multiple_choice: 'multiple_choice',
+  multiple_choice_multi: 'multiple_choice',
   tfng: 'tfng',
   ynng: 'tfng',
   table_completion: 'completion',
@@ -42,21 +45,25 @@ export const GROUP_OF: Record<QuestionType, QuestionGroup> = {
 export type TestSummary = {
   id: string;
   title: string;
+  authoring: Authoring;
   testType: TestType;
   sourceType: SourceType;
   status: TestStatus;
   durationMinutes: number;
   publishedAt: string | null;
   createdAt: string;
+  /** Only in the list: OCR and question parsing still running. */
+  processing?: boolean;
 };
 
 export type JobState = { state: 'queued' | 'running' | 'done' | 'failed'; errorCode: string | null };
-export type SectionQuestion = { number: number; questionType: QuestionType; wordLimit: number | null };
+export type SectionQuestion = { number: number; questionType: QuestionType; wordLimit: number | null; prompt: string; options: string[] };
 export type SectionRange = { from: number; to: number; questionType: QuestionType; wordLimit: number | null; answerGroup?: number | null };
 export type Section = {
   id: string;
   position: number;
   title: string;
+  body: string;
   suggestedMinutes: number | null;
   passagePages: number[];
   questionPages: number[];
@@ -103,9 +110,12 @@ export type StructureSection = {
   unitsPrimary: string[];
   unitsSecondary: string[];
   ranges: { from: number; to: number; questionType: QuestionType; wordLimit?: number; answerGroup?: number }[];
+  body?: string;
+  /** `answers` [] clears that question's answer; leaving it out keeps the key as it is. */
+  questions?: { number: number; questionType: QuestionType; wordLimit?: number; prompt: string; options: string[]; answers?: string[] }[];
 };
 
-export type CreateTest = { title: string; sourceType: SourceType; testType: TestType; durationMinutes: number };
+export type CreateTest = { title: string; sourceType: SourceType; testType: TestType; durationMinutes: number; authoring?: Authoring };
 
 const base = (id: string) => `/api/tests/${id}`;
 
@@ -116,7 +126,10 @@ export const testsApi = {
   update: (id: string, body: Partial<CreateTest>) => api.patch<TestSummary>(base(id), body),
   putStructure: (id: string, sections: StructureSection[]) => api.put<TestDetail>(`${base(id)}/structure`, { sections }),
   readiness: (id: string) => api.get<{ ready: boolean; blockers: string[] }>(`${base(id)}/readiness`),
-  uploadPdf: (id: string, file: File) => api.upload<{ pageCount: number; hasTextLayer: boolean }>(`${base(id)}/pdf`, file),
+  /** `process` is the teacher's consent to OCR the file and parse its questions. */
+  uploadPdf: (id: string, file: File, process = false) =>
+    api.upload<{ pageCount: number; hasTextLayer: boolean }>(`${base(id)}/pdf${process ? '?process=true' : ''}`, file),
+  retryOcr: (id: string) => api.post<JobState>(`${base(id)}/ocr`),
   pdfUrl: (id: string) => api.get<{ url: string; expiresIn: number }>(`${base(id)}/pdf-url`),
   publish: (id: string) => api.post<TestSummary>(`${base(id)}/publish`),
   archive: (id: string) => api.post<TestSummary>(`${base(id)}/archive`),

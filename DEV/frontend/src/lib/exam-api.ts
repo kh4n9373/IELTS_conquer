@@ -69,6 +69,7 @@ export type MyAssignment = {
 
 export type ExamRoom = {
   title: string;
+  authoring: 'pdf' | 'manual';
   durationMinutes: number;
   pageCount: number | null;
   questionCount: number;
@@ -76,8 +77,8 @@ export type ExamRoom = {
   status: AttemptStatus;
   deadlineAt: string;
   serverNow: string;
-  sections: { position: number; title: string; passagePages: number[]; questionPages: number[]; numbers: number[] }[];
-  questions: { number: number; type: QuestionType; wordLimit: number | null; group: number | null }[];
+  sections: { position: number; title: string; body: string; passagePages: number[]; questionPages: number[]; numbers: number[] }[];
+  questions: { number: number; type: QuestionType; wordLimit: number | null; group: number | null; prompt: string; options: string[] }[];
   answers: { number: number; value: string; marked: boolean; seq: number }[];
 };
 export type AnswerItem = { number: number; value: string; markedForReview: boolean; seq: number };

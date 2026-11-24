@@ -191,6 +191,9 @@ PasswordField = Annotated[str, AfterValidator(_sized(8, 200))]
 LoginPassword = Annotated[str, AfterValidator(_sized(1, 200))]
 TokenField = Annotated[str, AfterValidator(_sized(1, 200))]
 NameField = Annotated[str, AfterValidator(_sized(1, 120, trim=True))]
+PassageField = Annotated[str, AfterValidator(_sized(0, 50000))]
+PromptField = Annotated[str, AfterValidator(_sized(0, 2000, trim=True))]
+OptionField = Annotated[str, AfterValidator(_sized(1, 300, trim=True))]
 InviteCode = Annotated[str, AfterValidator(_sized(1, 32, trim=True))]
 
 DOMAIN_ERRORS: dict[str, tuple[int, str]] = {

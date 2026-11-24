@@ -53,7 +53,14 @@ def check_draft(ctx: CtxDep, identity: IdentityDep, test_id: UUID) -> None:
 
 
 def commit_asset(
-    ctx: CtxDep, identity: IdentityDep, test_id: UUID, kind: Kind, key: str, size: int, info: PdfInfo
+    ctx: CtxDep,
+    identity: IdentityDep,
+    test_id: UUID,
+    kind: Kind,
+    key: str,
+    size: int,
+    info: PdfInfo,
+    process: bool = False,
 ) -> str | None:
     """Swaps the asset row of this kind in one transaction. Returns the old storage key."""
     with with_identity(ctx.pool, identity) as tx:
@@ -68,10 +75,22 @@ def commit_asset(
             (test_id, test["teacher_id"], kind, key, info.sha256, size, info.page_count, info.has_text_layer),
         ).fetchone()
         assert asset is not None  # noqa: S101
-        # Uploading never queues OCR: the new row has no approval, whatever the old file had.
+        # Only an upload sent with `process` queues work: the new row has no approval, whatever the
+        # old file had. That request is the recorded permission to send this exact file to OCR and its
+        # text to the question parser.
         after: dict[str, Any] = {"kind": kind, "size": size, "pageCount": info.page_count}
         if kind == "student_pdf":
             after["sha256"] = info.sha256
+            if process:
+                tx.execute(
+                    "update test_assets set ocr_approved_at = %s, ocr_approved_by = %s where id = %s",
+                    (ctx.now(), identity.user_id, asset["id"]),
+                )
+                tx.execute(
+                    "insert into ocr_jobs (asset_id, teacher_id) values (%s, %s)",
+                    (asset["id"], test["teacher_id"]),
+                )
+                after["ocrApproved"] = True
         else:
             # Regions point into the old file, and imported drafts came from it, so unreviewed ones
             # must be checked again. Approved versions are immutable and are left alone.
@@ -97,7 +116,9 @@ def forget(store: FileStore, key: str, test_id: UUID, kind: str) -> None:
         log.warning("Object cleanup failed for test %s (%s): %s", test_id, kind, type(err).__name__)
 
 
-async def upload(request: Request, ctx: CtxDep, identity: IdentityDep, test_id: UUID, kind: Kind) -> Any:
+async def upload(
+    request: Request, ctx: CtxDep, identity: IdentityDep, test_id: UUID, kind: Kind, process: bool = False
+) -> Any:
     await run_in_threadpool(check_draft, ctx, identity, test_id)
     store = ctx.store
     if store is None:
@@ -129,7 +150,9 @@ async def upload(request: Request, ctx: CtxDep, identity: IdentityDep, test_id: 
             # The client's error text holds the storage key, so it must not reach the crash log.
             raise unavailable() from None
         stored = True
-        old_key = await run_in_threadpool(commit_asset, ctx, identity, test_id, kind, key, size, info)
+        old_key = await run_in_threadpool(
+            commit_asset, ctx, identity, test_id, kind, key, size, info, process
+        )
         stored = False
     finally:
         path.unlink(missing_ok=True)
@@ -142,8 +165,10 @@ async def upload(request: Request, ctx: CtxDep, identity: IdentityDep, test_id: 
 
 @router.put("/api/tests/{id}/pdf")
 @access(TEACHER)
-async def put_pdf(id: UUID, request: Request, ctx: CtxDep, identity: IdentityDep) -> Any:
-    return await upload(request, ctx, identity, id, "student_pdf")
+async def put_pdf(
+    id: UUID, request: Request, ctx: CtxDep, identity: IdentityDep, process: bool = False
+) -> Any:
+    return await upload(request, ctx, identity, id, "student_pdf", process)
 
 
 @router.put("/api/tests/{id}/key-source")

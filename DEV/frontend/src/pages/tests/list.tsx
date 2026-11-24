@@ -43,7 +43,7 @@ export function TestListPage() {
                   <span className="muted test-meta">{t.tests.meta(t.tests.types[test.testType], test.durationMinutes)}</span>
                 </span>
                 <span className="toc-leader" aria-hidden="true" />
-                <span className={`tag${test.status === 'published' ? ' tag-live' : ''}`}>{t.tests.status[test.status]}</span>
+                <span className={`tag${test.status === 'published' ? ' tag-live' : ''}`}>{test.processing ? t.tests.pdfFlow.processing : t.tests.status[test.status]}</span>
                 <span className="toc-date">{formatDate(test.createdAt)}</span>
                 <span className="toc-arrow" aria-hidden="true"><Icon name="arrow" /></span>
               </Link>
