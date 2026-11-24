@@ -1,7 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
-import { ExamContentView } from '../../components/exam-content';
 import { PdfViewer } from '../../components/pdf-viewer';
 import { ErrorAlert, LangSwitch, Loading } from '../../components/ui';
 import { createAnswerQueue, type AnswerQueue, type PendingAnswer, type QueueSnapshot } from '../../lib/answer-queue';
@@ -9,7 +8,7 @@ import { examApi, type ExamRoom } from '../../lib/exam-api';
 import { useI18n } from '../../lib/i18n';
 import { errorText } from '../../lib/messages';
 import { formatRemaining, serverClock, type ServerClock } from '../../lib/server-clock';
-import { AnswerPanel, isAnswered, type Answers } from './answer-panel';
+import { AnswerPanel, FlagIcon, isAnswered, type Answers } from './answer-panel';
 import './exam.css';
 
 type View = 'text' | 'q';
@@ -200,6 +199,7 @@ function Room({ attemptId, room, tokenRef, clockRef, queue, restored }: RoomProp
   };
   const pick = (number: number) => {
     setCurrent(number);
+    if (phone) setView('q');
     const owner = room.sections.findIndex((s) => s.numbers.includes(number));
     if (owner >= 0 && owner !== passage) {
       setPassage(owner);
@@ -279,7 +279,7 @@ function Room({ attemptId, room, tokenRef, clockRef, queue, restored }: RoomProp
   else if (snap.pending > 0 || snap.state === 'saving') status = t.exam.saving;
   else if (snap.savedAt) status = t.exam.saved(timeFormat.format(new Date(snap.savedAt)));
 
-  const last5 = !expired && left <= LAST_MINUTES_MS;
+  const hot = !expired && left <= LAST_MINUTES_MS;
   const banner = stale
     ? { text: t.exam.otherDevice, tone: 'soft' }
     : snap.state === 'rejected'
@@ -288,29 +288,43 @@ function Room({ attemptId, room, tokenRef, clockRef, queue, restored }: RoomProp
         ? { text: t.exam.timeUp, tone: 'alert' }
         : offline
           ? { text: t.exam.offline(snap.pending), tone: 'alert' }
-          : last5
-            ? { text: t.exam.last5, tone: 'alert' }
-            : null;
+          : null;
+  const tone = offline || snap.state === 'rejected' ? 'bad' : readOnly ? '' : snap.pending > 0 || snap.state === 'saving' ? 'busy' : snap.savedAt ? 'ok' : '';
 
   const sections = room.sections;
   const shownNumbers = sections[passage]?.numbers;
   const shownQuestions = shownNumbers ? room.questions.filter((q) => shownNumbers.includes(q.number)) : room.questions;
   const hasPdf = room.pageCount !== null;
+  // A typed test without reading text gets one centred column, not an empty passage pane.
+  const noPassage = room.authoring === 'manual' && !(sections[passage]?.body ?? '').trim();
+  const shownView: View = noPassage ? 'q' : view;
+  const share = Math.min(1, Math.max(0, left / (room.durationMinutes * 60_000)));
+  const groups = sections.length > 0 ? sections.map((s) => ({ key: s.position, title: s.title, numbers: s.numbers })) : [{ key: 0, title: '', numbers: room.questions.map((q) => q.number) }];
+  const todo = room.questions.filter((q) => !isAnswered(answers[q.number]) || answers[q.number]?.marked);
+  const index = room.questions.findIndex((q) => q.number === current);
+  const step = (by: number) => {
+    const next = room.questions[index + by];
+    if (next) pick(next.number);
+  };
 
   return (
-    <div className="exam" data-view={view}>
-      <header className="exam-head">
-        <strong className="exam-title">{room.title}</strong>
-        <span role="status" className={`exam-save${offline ? ' is-bad' : ''}`}>{status}</span>
-        <span className="exam-tools">
+    <div className="exam">
+      <header className={`exam-head${hot || expired ? ' is-hot' : ''}`}>
+        <div className="exam-id">
+          <strong>{room.title}</strong>
+          <span>{t.exam.meta(room.questions.length, room.durationMinutes)}</span>
+        </div>
+        <div role="timer" aria-label={hot ? `${t.exam.timeLeft}. ${t.exam.last5}` : t.exam.timeLeft} className="exam-time">
+          <span className={!expired && left < 60_000 ? 'is-pulse' : undefined}>{formatRemaining(left)}</span>
+        </div>
+        <div className="exam-tools">
+          <span role="status" className="exam-save" data-tone={tone}>{status}</span>
           <LangSwitch />
-          <span role="timer" aria-label={t.exam.timeLeft} className={`exam-time${last5 || expired ? ' is-low' : ''}`}>
-            {formatRemaining(left)}
-          </span>
-          <button type="button" className="xb red" disabled={readOnly} onClick={() => setConfirming(true)}>
+          <button type="button" className="exam-submit" disabled={readOnly} onClick={() => setConfirming(true)}>
             {phone ? t.exam.submitShort : t.exam.submit}
           </button>
-        </span>
+        </div>
+        <span className="exam-bar" aria-hidden="true"><span style={{ width: `${share * 100}%` }} /></span>
       </header>
       {banner && (
         <div role="alert" className={`exam-banner ${banner.tone}`}>
@@ -322,71 +336,128 @@ function Room({ attemptId, room, tokenRef, clockRef, queue, restored }: RoomProp
           )}
         </div>
       )}
-      <div className="exam-main" data-view={view}>
+      <div className={`exam-main${noPassage ? ' is-single' : ''}`} data-view={shownView} data-paper={room.authoring}>
         <div className="exam-switch">
-          <span className="exam-tabs">
-            {sections.map((s, i) => (
-              <button
-                key={s.position}
-                type="button"
-                className={`xb${i === passage ? ' is-on' : ''}`}
-                aria-pressed={i === passage}
-                onClick={() => pickPassage(i)}
-              >
-                {s.title}
-              </button>
-            ))}
-          </span>
-          <span className="exam-toggle">
-            <button type="button" className={`xb${view === 'text' ? ' is-dark' : ''}`} aria-pressed={view === 'text'} onClick={() => goTo(passage, 'text', !phone)}>
-              {t.exam.passage}
-            </button>
-            <button type="button" className={`xb${view === 'q' ? ' is-dark' : ''}`} aria-pressed={view === 'q'} onClick={() => goTo(passage, 'q', !phone)}>
-              {t.exam.questions}
-            </button>
-          </span>
-        </div>
-        <section className="exam-paper" aria-label={t.exam.pdfArea}>
-          {room.authoringMode === 'composed' ? (
-            <ExamContentView section={room.content?.sections[passage]} />
-          ) : (
-          <PdfViewer
-            testId={attemptId}
-            hasPdf={hasPdf}
-            queryKey={['exam-pdf', attemptId]}
-            loadUrl={() => examApi.pdfUrl(attemptId)}
-            page={pdfPage}
-            onPageChange={remember}
-          />
+          {sections.length > 1 && (
+            <span className="exam-tabs">
+              {sections.map((s, i) => (
+                <button key={s.position} type="button" aria-pressed={i === passage} onClick={() => pickPassage(i)}>
+                  {s.title}
+                </button>
+              ))}
+            </span>
           )}
-        </section>
+          {!noPassage && (phone || room.authoring === 'pdf') && (
+            <span className="exam-toggle">
+              <button type="button" aria-pressed={view === 'text'} onClick={() => goTo(passage, 'text', !phone)}>{t.exam.passage}</button>
+              <button type="button" aria-pressed={view === 'q'} onClick={() => goTo(passage, 'q', !phone)}>{t.exam.questions}</button>
+            </span>
+          )}
+        </div>
+        {!noPassage && (
+          <section className="exam-paper" aria-label={t.exam.pdfArea}>
+            {room.authoring === 'manual' ? (
+              <article className="exam-text">
+                <h2>{sections[passage]?.title}</h2>
+                <p>{sections[passage]?.body}</p>
+              </article>
+            ) : (
+              <PdfViewer
+                testId={attemptId}
+                hasPdf={hasPdf}
+                queryKey={['exam-pdf', attemptId]}
+                loadUrl={() => examApi.pdfUrl(attemptId)}
+                page={pdfPage}
+                onPageChange={remember}
+              />
+            )}
+          </section>
+        )}
+        {!noPassage && <span className="exam-grip" aria-hidden="true" />}
         <AnswerPanel
           questions={shownQuestions}
           answers={answers}
           current={current}
           phone={phone}
           locked={readOnly}
-          onPick={pick}
+          onCurrent={setCurrent}
           onEdit={edit}
           onMark={mark}
         />
-        <div className="exam-step">
-          <button type="button" className="xb" onClick={() => pick(Math.max(1, current - 1))}>{t.exam.prev}</button>
-          <button type="button" className="xb is-dark" onClick={() => pick(Math.min(room.questions.length, current + 1))}>{t.exam.next}</button>
-        </div>
       </div>
+      <nav className="exam-nav" aria-label={t.exam.sheet}>
+        <div className="exam-groups">
+          {groups.map((g) => {
+            const done = g.numbers.filter((n) => isAnswered(answers[n])).length;
+            return (
+              <div key={g.key} className={`exam-group${g.numbers.includes(current) ? ' is-on' : ''}`}>
+                {g.title && <span className="exam-group-name"><strong>{g.title}</strong> {done}/{g.numbers.length}</span>}
+                <span className="exam-cells">
+                  {g.numbers.map((n) => {
+                    const answered = isAnswered(answers[n]);
+                    const marked = answers[n]?.marked ?? false;
+                    return (
+                      <button
+                        key={n}
+                        type="button"
+                        className={`exam-cell${answered ? ' is-done' : ''}${marked ? ' is-marked' : ''}${n === current ? ' is-current' : ''}`}
+                        aria-label={t.exam.cell(n, answered, marked)}
+                        aria-current={n === current || undefined}
+                        onClick={() => pick(n)}
+                      >
+                        {n}
+                      </button>
+                    );
+                  })}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+        <div className="exam-step">
+          <button type="button" aria-label={t.exam.prev} disabled={index <= 0} onClick={() => step(-1)}>
+            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M15 6l-6 6 6 6" /></svg>
+            <span aria-hidden="true">{t.exam.prev}</span>
+          </button>
+          <button type="button" aria-label={t.exam.next} disabled={index >= room.questions.length - 1} onClick={() => step(1)}>
+            <span aria-hidden="true">{t.exam.next}</span>
+            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg>
+          </button>
+        </div>
+      </nav>
       {confirming && (
         <div className="exam-veil">
-          <div role="alertdialog" aria-modal="true" aria-label={t.exam.confirmLabel} className="exam-dialog">
-            <h2>{t.exam.confirmTitle}</h2>
-            {!phone && (
-              <div className="exam-counts">
-                <span><strong>{answeredCount}</strong>{t.exam.answered}</span>
-                <span><strong>{room.questions.length - answeredCount}</strong>{t.exam.blankLeft}</span>
-                <span><strong>{markedCount}</strong>{t.exam.forReview}</span>
+          <div role="alertdialog" aria-modal="true" aria-labelledby="exam-confirm-title" className="exam-dialog">
+            <div>
+              <h2 id="exam-confirm-title">{t.exam.confirmTitle}</h2>
+              <p className="exam-dialog-sub">{t.exam.confirmWarn(Math.ceil(left / 60_000))}</p>
+            </div>
+            <div className="exam-counts">
+              <span><strong>{answeredCount}</strong>{t.exam.answered}</span>
+              <span><strong>{room.questions.length - answeredCount}</strong>{t.exam.blankLeft}</span>
+              <span className="is-mark"><strong>{markedCount}</strong>{t.exam.forReview}</span>
+            </div>
+            {todo.length > 0 && (
+              <div className="exam-todo">
+                <span>{t.exam.todo}</span>
+                <div>
+                  {todo.map((q) => (
+                    <button
+                      key={q.number}
+                      type="button"
+                      className={answers[q.number]?.marked ? 'is-mark' : undefined}
+                      onClick={() => {
+                        setConfirming(false);
+                        pick(q.number);
+                      }}
+                    >
+                      {answers[q.number]?.marked && <FlagIcon />}
+                      {`${t.exam.q} ${q.number}`}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
-            <p>{phone ? t.exam.confirmPhone(answeredCount, room.questions.length) : t.exam.confirmWarn}</p>
             {submitError && <p className="alert" role="alert"><span>{submitError}</span></p>}
             <div className="exam-actions">
               <button type="button" className="xb" autoFocus disabled={submitting} onClick={() => setConfirming(false)}>{t.exam.keepWorking}</button>

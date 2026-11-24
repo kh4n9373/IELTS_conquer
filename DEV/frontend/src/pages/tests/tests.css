@@ -21,11 +21,14 @@ label.plain input:focus-visible, select:focus-visible, textarea:focus-visible, i
 .pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 
 /* Create and details */
+.details > .stack { align-content: start; }
 .details { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 24px; padding: clamp(16px, 3vw, 24px); background: var(--sheet); border: 1px solid var(--line); }
 .type-option { display: grid; gap: 2px; justify-items: start; width: 100%; margin-bottom: 8px; padding: 10px 14px; text-align: left; color: var(--text); background: var(--sheet); border-color: var(--text); }
 .type-option strong { font-size: 0.9375rem; }
 .type-option span { font-size: 0.8125rem; font-weight: 500; }
 .type-option.on { color: #fff; background: var(--ink); }
+/* A locked choice is still the chosen one, not a greyed-out button. */
+fieldset:disabled .type-option { opacity: 1; cursor: default; }
 .type-option::before { display: none; }
 .drop { display: grid; gap: 10px; justify-items: start; min-height: 160px; align-content: center; padding: 20px; background: var(--paper); border: 2px dashed var(--line-strong); }
 .drop.is-bad { border-color: var(--mark); }
@@ -96,7 +99,43 @@ button.secondary-link, .button-link.secondary-link { color: var(--text); backgro
 .sheet-list label { display: flex; align-items: center; gap: 10px; font-size: 0.875rem; font-weight: 700; }
 .sheet-list label span { flex: none; width: 56px; }
 .sheet-list input { flex: 1; min-width: 0; min-height: 42px; padding: 0 10px; background: var(--paper); border: 1px solid var(--line-strong); }
-.mode-pick { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; max-width: 720px; }
-.mode-pick legend { margin-bottom: 8px; }
-.mode-pick .type-option { margin-bottom: 0; }
-.type-option:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Questions step: PDF or passage on the left, questions with their answers on the right */
+.preview .workbench > .preview-text { flex: 999 1 560px; }
+.preview-text p { white-space: pre-wrap; line-height: 1.6; }
+.qe { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 16px; align-items: start; }
+.qe-left { position: sticky; top: 80px; min-width: 0; }
+.qe-right { display: grid; gap: 14px; min-width: 0; }
+.qe textarea { width: 100%; padding: 10px 12px; font: inherit; line-height: 1.6; background: #fff; border: 1px solid var(--line-strong); resize: vertical; }
+.qe-tabs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.qe-tabs .xb { padding: 8px 14px; font-weight: 700; color: var(--mark); background: #fff; border: 1px solid var(--mark); }
+.qe-tabs .xb.is-on { color: #fff; background: var(--mark); border-color: var(--mark); }
+.qe-tabs .file-button { margin-left: auto; }
+.qe-head { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.qe-head:empty { display: none; }
+.qrow { display: grid; gap: 10px; padding: 14px; background: var(--paper); }
+.mq-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.mq-head select { flex: 1 1 180px; }
+.mq-options { display: grid; gap: 6px; }
+.mq-label { font-size: 0.8125rem; font-weight: 700; }
+.mq-option { display: flex; align-items: center; gap: 8px; }
+.mq-option input[type='text'] { flex: 1; min-width: 0; }
+.mq-letter { flex: none; width: 40px; font-weight: 900; text-align: center; }
+.mq-pick { flex: none; width: 40px; min-height: 40px; padding: 0; font-weight: 900; color: var(--ink); background: #fff; border: 1px solid var(--line-strong); }
+.mq-pick.is-on { color: #fff; background: var(--ink); border-color: var(--ink); }
+.mq-remove { flex: none; width: 40px; min-height: 40px; padding: 0; color: var(--text); background: transparent; border-color: var(--line-strong); }
+.mq-answer { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; }
+.mq-answer .small input { width: 90px; }
+.file-button { position: relative; overflow: hidden; cursor: pointer; }
+.file-button input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.pdf-upload, .processing { display: grid; gap: 14px; max-width: 720px; }
+.processing h2, .pdf-upload h2 { margin: 0; }
+.sheet-list small { display: block; font-size: 0.8125rem; }
+@media (max-width: 900px) {
+  .qe { grid-template-columns: 1fr; }
+  .qe-left { position: static; }
+  }
+.details:has(> .stack[hidden]) { grid-template-columns: 1fr; }
+.reimport { margin-bottom: 16px; padding: 12px 16px; background: var(--sheet); border: 1px solid var(--line); }
+.reimport summary { cursor: pointer; font-weight: 700; }
+.reimport[open] { display: grid; gap: 12px; }

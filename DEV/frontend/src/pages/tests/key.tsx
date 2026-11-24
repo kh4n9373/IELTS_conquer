@@ -1,11 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { Empty, ErrorAlert, Icon, Loading, Notice } from '../../components/ui';
+import { Empty, ErrorAlert, Icon, Loading } from '../../components/ui';
 import { useI18n } from '../../lib/i18n';
-import { testsApi, type ImportCounts, type KeyItem } from '../../lib/tests-api';
+import { testsApi, type KeyItem } from '../../lib/tests-api';
 import { useTest } from './editor';
-import { KeyRegion } from './key-region';
 
 const keyQuery = (id: string) => ['test', id, 'key'] as const;
 const readinessQuery = (id: string) => ['test', id, 'readiness'] as const;
@@ -18,16 +17,7 @@ export function KeyPage() {
   const { test } = useTest();
   const client = useQueryClient();
   const locked = test.status !== 'draft';
-  const key = useQuery({
-    queryKey: keyQuery(test.id),
-    queryFn: () => testsApi.getKey(test.id),
-    // A running scan fills the table by itself, so the page keeps checking until it ends.
-    refetchInterval: (q) => (['queued', 'running'].includes(q.state.data?.scan?.state ?? '') ? 3000 : false),
-  });
-  const [pasted, setPasted] = useState('');
-  const [message, setMessage] = useState<string | null>(null);
-  const [selected, setSelected] = useState<number | null>(null);
-  const [uploading, setUploading] = useState(0);
+  const key = useQuery({ queryKey: keyQuery(test.id), queryFn: () => testsApi.getKey(test.id) });
 
   const refresh = () => {
     client.invalidateQueries({ queryKey: keyQuery(test.id) });
@@ -35,7 +25,6 @@ export function KeyPage() {
   };
   const action = useMutation({
     mutationFn: async (run: () => Promise<unknown>) => run(),
-    onMutate: () => setMessage(null),
     // Also after a refusal, so a changed answer is on screen before the teacher tries again.
     onSettled: () => refresh(),
   });
@@ -48,12 +37,8 @@ export function KeyPage() {
   const isDone = (n: number) => Boolean(items.get(n)?.reviewed && !items.get(n)?.flagged && filled(n));
   const reviewed = questions.filter((q) => isDone(q.number)).length;
   const reviewable = questions.filter((q) => filled(q.number) && !items.get(q.number)?.reviewed && !items.get(q.number)?.flagged).map((q) => q.number);
-  const scan = key.data?.scan ?? null;
-  const scanning = scan?.state === 'queued' || scan?.state === 'running';
   const reviewShown = (numbers: number[]) =>
     run(() => testsApi.reviewKey(test.id, numbers.map((number) => ({ number, answers: items.get(number)?.answers ?? [] }))));
-  const source = key.data?.source ?? null;
-  const selectedItem = selected === null ? undefined : items.get(selected);
 
   // What a row's box shows while it differs from the stored answer. Review always approves the stored
   // answer, so it stays off while any box differs or is being saved.
@@ -81,32 +66,13 @@ export function KeyPage() {
       }
     });
   };
-  const onFile = (file: File | undefined) => {
-    if (!file) return;
-    setUploading((n) => n + 1);
-    run(async () => {
-      try {
-        const info = await testsApi.uploadKeySource(test.id, file);
-        if (info.hasTextLayer) {
-          const counts: ImportCounts = await testsApi.importKey(test.id);
-          setMessage(t.tests.key.imported(counts));
-        }
-      } finally {
-        // The rows must show the new file's regions before the card may draw again.
-        await client.invalidateQueries({ queryKey: keyQuery(test.id) });
-        setUploading((n) => n - 1);
-      }
-    });
-  };
-
   if (key.isPending) return <Loading />;
 
   return (
-    <div className="workbench key-bench">
-      <section className="panel" aria-label={t.tests.key.area}>
+    <section className="panel" aria-label={t.tests.key.area}>
         <div className="panel-head">
           <strong className="big">{t.tests.key.reviewed(reviewed, questions.length)}</strong>
-          <button type="button" disabled={locked || reviewable.length === 0 || action.isPending || unsettled || scanning} onClick={() => reviewShown(reviewable)}>
+          <button type="button" disabled={locked || reviewable.length === 0 || action.isPending || unsettled} onClick={() => reviewShown(reviewable)}>
             {t.tests.key.reviewClean}
           </button>
         </div>
@@ -133,12 +99,7 @@ export function KeyPage() {
                   const status = done ? t.tests.key.done : !has ? t.tests.key.missing : item?.flagged ? t.tests.key.check : t.tests.key.review;
                   const value = (item?.answers ?? []).join('; ');
                   return (
-                    <tr
-                      key={q.number}
-                      className={!has || item?.flagged ? 'is-flag' : undefined}
-                      onClick={() => setSelected(q.number)}
-                      onFocusCapture={() => setSelected(q.number)}
-                    >
+                    <tr key={q.number} className={!has || item?.flagged ? 'is-flag' : undefined}>
                       {/* Locked rows have no enabled control, so the number stays reachable by keyboard. */}
                       <th scope="row" tabIndex={locked ? 0 : undefined}>{q.number}</th>
                       <td className="muted">{t.tests.questionTypes[q.questionType]}{q.wordLimit ? ` (${q.wordLimit})` : ''}</td>
@@ -163,7 +124,7 @@ export function KeyPage() {
                           className={done ? 'review is-on' : 'secondary review'}
                           aria-label={t.tests.key.reviewLabel(q.number)}
                           aria-pressed={done}
-                          disabled={locked || !has || done || action.isPending || unsettled || scanning}
+                          disabled={locked || !has || done || action.isPending || unsettled}
                           onClick={() => reviewShown([q.number])}
                         >
                           {status}
@@ -182,59 +143,6 @@ export function KeyPage() {
             <Icon name="arrow" />
           </Link>
         </div>
-      </section>
-      <aside className="panel" aria-label={t.tests.key.input}>
-        <h2>{t.tests.key.input}</h2>
-        <div className="stack">
-        <fieldset className="stack" disabled={locked}>
-          <label className="plain">{t.tests.key.pasteLabel}
-            <textarea rows={5} value={pasted} onChange={(e) => setPasted(e.target.value)} placeholder={'1. A\n2. C\n23. two; platform two'} />
-          </label>
-          <p className="muted">{t.tests.key.pasteHint}</p>
-          <button
-            type="button"
-            className="secondary"
-            disabled={pasted.trim() === '' || action.isPending}
-            onClick={() => run(async () => {
-              const data = await testsApi.putKeyItems(test.id, { pasted });
-              setPasted('');
-              setMessage(t.tests.key.pasted(data.items.length));
-            })}
-          >
-            {t.tests.key.pasteApply}
-          </button>
-          <label className="plain">{t.tests.key.file}
-            <input type="file" accept="application/pdf,image/png,image/jpeg" onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ''; }} />
-          </label>
-          <p className="muted">{t.tests.key.fileNote}</p>
-        </fieldset>
-        {/* Outside the locked fieldset: viewing a source region, and retrying it, stays possible after publishing. */}
-        <KeyRegion
-          key={source?.revision ?? 'none'}
-          testId={test.id}
-          revision={source?.revision ?? null}
-          number={uploading > 0 ? null : selected}
-          page={uploading > 0 || !source ? null : selectedItem?.sourcePage ?? null}
-          bbox={uploading > 0 || !source ? null : selectedItem?.sourceBbox ?? null}
-          onFileChanged={() => client.invalidateQueries({ queryKey: keyQuery(test.id) })}
-        />
-        {source && !source.hasTextLayer && (
-          <fieldset className="stack" disabled={locked}>
-            <p className="muted">{t.tests.key.scanReady}</p>
-            <button type="button" className="secondary" disabled={action.isPending} onClick={() => run(() => testsApi.scanKey(test.id))}>{t.tests.key.scan}</button>
-          </fieldset>
-        )}
-        </div>
-        {message && <Notice>{message}</Notice>}
-        {scan && (
-          <div role="status" className="scan-status">
-            <span>{scan.errorCode === 'no_answers_found' ? t.tests.key.scanNoAnswers : t.tests.key.scanState[scan.state]}</span>
-            {scan.state === 'failed' && !locked && (
-              <button type="button" className="secondary" disabled={action.isPending} onClick={() => run(() => testsApi.scanKey(test.id))}>{t.tests.key.retryScan}</button>
-            )}
-          </div>
-        )}
-      </aside>
-    </div>
+    </section>
   );
 }

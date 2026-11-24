@@ -19,5 +19,7 @@ export function serverClock(serverNowIso: string): ServerClock {
 export function formatRemaining(ms: number): string {
   const total = Math.ceil(ms / 1000);
   const pad = (n: number) => String(n).padStart(2, '0');
-  return `${pad(Math.floor(total / 3600))}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`;
+  const hours = Math.floor(total / 3600);
+  const rest = `${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`;
+  return hours > 0 ? `${pad(hours)}:${rest}` : rest;
 }

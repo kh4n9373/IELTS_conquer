@@ -40,8 +40,13 @@ def _grade_locked(data: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, 
         "bandTableVersion": BAND_TABLE_VERSION if band else None,
     }
     items = [
-        {"number": m.number, "given": m.given, "correct": m.correct, "reason": m.reason,
-         "accepted": accepted[m.number]}
+        {
+            "number": m.number,
+            "given": m.given,
+            "correct": m.correct,
+            "reason": m.reason,
+            "accepted": accepted[m.number],
+        }
         for m in marks
     ]
     return run, items
@@ -66,8 +71,13 @@ def settle_attempt(ctx: Ctx, attempt_id: UUID, *, source: Literal["student", "au
         run, items = _grade_locked(data)
         conn.execute(
             "select app.attempt_store_grade(%s, %s, %s, %s::jsonb, %s::jsonb)",
-            (attempt_id, "submitted" if source == "student" else "auto_submitted", now,
-             json.dumps(run), json.dumps(items)),
+            (
+                attempt_id,
+                "submitted" if source == "student" else "auto_submitted",
+                now,
+                json.dumps(run),
+                json.dumps(items),
+            ),
         )
     return True
 

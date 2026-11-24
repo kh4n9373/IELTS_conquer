@@ -23,7 +23,9 @@ MAX_PASSAGE = 30_000
 MAX_TEXT = 2_000
 MAX_CONTENT = 10_000
 
-SUPPORTED_TYPES = [t for t in QUESTION_GROUPS if t != "diagram_label"]
+# One question per answer box: "choose two" is two multiple_choice questions with select_count 2.
+UNSUPPORTED = ("diagram_label", "multiple_choice_multi")
+SUPPORTED_TYPES = [t for t in QUESTION_GROUPS if t not in UNSUPPORTED]
 TFNG = {"tfng": ["TRUE", "FALSE", "NOT GIVEN"], "ynng": ["YES", "NO", "NOT GIVEN"]}
 PLACEHOLDER = re.compile(r"\{\{\s*(\d{1,3})\s*\}\}")
 
@@ -56,7 +58,9 @@ class Question(Model):
     prompt: Text | None = Field(
         None, description="The question text. Omit when the group content holds {{n}}."
     )
-    options: list[Option] | None = Field(None, description="Only for single-answer multiple choice.")
+    options: Annotated[list[Option], Field(max_length=26)] | None = Field(
+        None, description="Only for single-answer multiple choice."
+    )
     answers: Annotated[list[str], Field(min_length=1, max_length=MAX_ANSWERS)] = Field(
         description="Every accepted answer: option keys, TRUE/FALSE/NOT GIVEN, or words for completion."
     )
@@ -68,7 +72,7 @@ class Group(Model):
     type: str = Field(description="One of: " + ", ".join(SUPPORTED_TYPES))
     instructions: Text
     word_limit: Annotated[int, Field(ge=1, le=20)] | None = None
-    options: list[Option] = []
+    options: Annotated[list[Option], Field(max_length=26)] = []
     options_reusable: bool = False
     select_count: Annotated[int, Field(ge=1, le=5)] = 1
     prompt: Text | None = None
@@ -198,6 +202,10 @@ def _check_group(group: Group, path: str, errors: list[Any], warnings: list[Any]
             )
         )
         return
+    if kind == "multiple_choice_multi":
+        message = "Dùng multiple_choice với select_count (mỗi câu một ô), không dùng multiple_choice_multi."
+        errors.append(issue("unsupported_type", f"{path}.type", message))
+        return
     if kind not in SUPPORTED_TYPES:
         errors.append(issue("unknown_type", f"{path}.type", f"Dạng câu '{kind}' không có trong danh sách."))
         return
@@ -316,26 +324,80 @@ def canonical_answers(group: Group, q: Question) -> list[str]:
     return [a.strip() for a in q.answers]
 
 
-def student_content(doc: ExamDoc) -> dict[str, Any]:
-    """What students may see: text only, never answers, uncertainty or AI notes."""
-    return {
-        "sections": [
-            {
-                "title": s.title,
-                "passage": s.passage.model_dump(),
-                "groups": [
+LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+MAX_PROMPT = 2000  # questions.prompt in the manual model
+MAX_OPTION = 300  # one option in the manual model
+
+
+def _cut(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _blanks(text: str) -> str:
+    return PLACEHOLDER.sub(lambda m: f"({m.group(1)}) ________", text)
+
+
+def _line_of(content: str, number: int) -> str:
+    for line in content.splitlines():
+        if number in (int(n) for n in PLACEHOLDER.findall(line)):
+            return _blanks(line).strip(" |")
+    return ""
+
+
+def to_manual(doc: ExamDoc) -> list[dict[str, Any]]:
+    """The test as manual-mode sections and questions, each question with its key.
+
+    The manual model has no group level, so the group's instructions, shared option list and
+    gapped text open its first question; later questions carry their own line or prompt.
+    Multiple choice keeps its options and answers become letters by position. Other option lists
+    become their keys (i, ii, A…), which is what the student picks and what the key holds.
+    """
+    out = []
+    for s in doc.sections:
+        paragraphs = [f"{p.label}  {p.text}" if p.label else p.text for p in s.passage.paragraphs]
+        body = "\n\n".join(([s.passage.title] if s.passage.title else []) + paragraphs)
+        questions = []
+        for g in s.groups:
+            choice = QUESTION_GROUPS[g.type] == "multiple_choice"
+            shared = [g.instructions]
+            if g.prompt:
+                shared.append(g.prompt)
+            if g.options and not choice:
+                shared.append("\n".join(f"{o.key}  {o.text}" for o in g.options))
+            if g.content:
+                shared.append(_blanks(g.content))
+            lead = g.questions[0].number if g.select_count > 1 else None
+            for i, q in enumerate(g.questions):
+                if q.prompt:
+                    own = _blanks(q.prompt)
+                elif g.content:
+                    own = "" if i == 0 else _line_of(g.content, q.number)
+                else:
+                    own = (g.prompt or "") if i > 0 else ""
+                parts = (shared if i == 0 else []) + ([own] if own else [])
+                opts = q.options or g.options
+                if choice:
+                    options = [_cut(o.text, MAX_OPTION) for o in opts]
+                    position = {o.key.casefold(): LETTERS[k] for k, o in enumerate(opts)}
+                    answers = [position[a.strip().casefold()] for a in q.answers]
+                else:
+                    options = [o.key for o in g.options]
+                    answers = canonical_answers(g, q)
+                questions.append(
                     {
-                        **g.model_dump(exclude={"questions"}),
-                        "questions": [
-                            q.model_dump(include={"number", "prompt", "options"}) for q in g.questions
-                        ],
+                        "number": q.number,
+                        "type": g.type,
+                        "word_limit": g.word_limit,
+                        "answer_group": lead,
+                        "prompt": _cut("\n\n".join(parts), MAX_PROMPT),
+                        "options": options,
+                        "answers": answers,
+                        "uncertain": q.uncertain,
+                        "note": (q.uncertain_reason or "AI không chắc đáp án.") if q.uncertain else None,
                     }
-                    for g in s.groups
-                ],
-            }
-            for s in doc.sections
-        ]
-    }
+                )
+        out.append({"title": s.title, "body": body, "section": s, "questions": questions})
+    return out
 
 
 def summary(doc: ExamDoc) -> dict[str, Any]:

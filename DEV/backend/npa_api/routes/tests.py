@@ -1,29 +1,32 @@
-from collections.abc import Mapping
-from typing import Annotated, Any, Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter
-from pydantic import Field, model_validator
+from pydantic import model_validator
 
 from ..core.db import Conn, Role, with_identity, write_audit
-from ..core.http import Body, CtxDep, GuardedRoute, HttpError, IdentityDep, NameField, access, not_found
+from ..core.http import (
+    Body,
+    CtxDep,
+    GuardedRoute,
+    HttpError,
+    IdentityDep,
+    NameField,
+    access,
+    not_found,
+)
 from ..exams.readiness import readiness
-from ..exams.types import QUESTION_GROUPS, QuestionType
+from ..exams.structure import Minutes, StructureBody, write_structure
 
 router = APIRouter(route_class=GuardedRoute)
 TEACHER: tuple[Role, ...] = ("teacher",)
 
 SourceType = Literal["self_authored", "licensed", "commercial", "other"]
 TestType = Literal["ielts_standard", "course"]
-Minutes = Annotated[int, Field(ge=1, le=300)]
-Pages = Annotated[list[Annotated[int, Field(ge=1, le=5000)]], Field(max_length=50)]
-Units = Annotated[list[NameField], Field(max_length=50)]
-MAX_SECTIONS = 10
-MAX_QUESTIONS = 200
+Authoring = Literal["pdf", "manual"]
 
-TEST_COLUMNS = """id, title, test_type as "testType", source_type as "sourceType", status,
-  duration_minutes as "durationMinutes", authoring_mode as "authoringMode",
-  published_at as "publishedAt", created_at as "createdAt"
+TEST_COLUMNS = """id, title, authoring, test_type as "testType", source_type as "sourceType", status,
+  duration_minutes as "durationMinutes", published_at as "publishedAt", created_at as "createdAt"
 """
 PATCH_COLUMNS = {
     "title": "title",
@@ -39,6 +42,7 @@ class CreateTestBody(Body):
     sourceType: SourceType  # noqa: N815
     testType: TestType  # noqa: N815
     durationMinutes: Minutes  # noqa: N815
+    authoring: Authoring = "pdf"
 
 
 class PatchTestBody(Body):
@@ -53,36 +57,6 @@ class PatchTestBody(Body):
         if not given or any(getattr(self, name) is None for name in given):
             raise ValueError("invalid patch")
         return self
-
-
-class RangeBody(Body):
-    from_: Annotated[int, Field(ge=1, le=MAX_QUESTIONS, alias="from")]
-    to: Annotated[int, Field(ge=1, le=MAX_QUESTIONS)]
-    questionType: QuestionType  # noqa: N815
-    wordLimit: Annotated[int, Field(ge=1, le=20)] | None = None  # noqa: N815
-    answerGroup: Annotated[int, Field(ge=1, le=MAX_QUESTIONS)] | None = None  # noqa: N815
-
-    @model_validator(mode="after")
-    def check(self) -> "RangeBody":
-        if self.from_ > self.to:
-            raise ValueError("invalid range")
-        if self.wordLimit is not None and QUESTION_GROUPS[self.questionType] != "completion":
-            raise ValueError("word limit applies to completion types only")
-        return self
-
-
-class SectionBody(Body):
-    title: NameField
-    suggestedMinutes: Minutes | None = None  # noqa: N815
-    passagePages: Pages = []  # noqa: N815
-    questionPages: Pages = []  # noqa: N815
-    unitsPrimary: Units = []  # noqa: N815
-    unitsSecondary: Units = []  # noqa: N815
-    ranges: Annotated[list[RangeBody], Field(max_length=50)] = []
-
-
-class StructureBody(Body):
-    sections: Annotated[list[SectionBody], Field(max_length=MAX_SECTIONS)]
 
 
 def lock_test(tx: Conn, test_id: UUID, *, draft: bool = False) -> dict[str, Any]:
@@ -129,7 +103,7 @@ def ranges_of(questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def load_structure(tx: Conn, test_id: UUID) -> list[dict[str, Any]]:
     sections = tx.execute(
-        """select id, position, title, suggested_minutes as "suggestedMinutes",
+        """select id, position, title, body, suggested_minutes as "suggestedMinutes",
                   passage_pages as "passagePages", question_pages as "questionPages",
                   units_primary as "unitsPrimary", units_secondary as "unitsSecondary"
            from sections where test_id = %s order by position""",
@@ -137,7 +111,7 @@ def load_structure(tx: Conn, test_id: UUID) -> list[dict[str, Any]]:
     ).fetchall()
     questions = tx.execute(
         """select section_id, number, question_type as "questionType", word_limit as "wordLimit",
-                  answer_group as "answerGroup"
+                  answer_group as "answerGroup", prompt, options
            from questions where test_id = %s order by number""",
         (test_id,),
     ).fetchall()
@@ -181,7 +155,14 @@ def detail(tx: Conn, test: dict[str, Any]) -> dict[str, Any]:
 @access(TEACHER)
 def list_tests(ctx: CtxDep, identity: IdentityDep) -> Any:
     with with_identity(ctx.pool, identity) as tx:
-        return tx.execute(f"select {TEST_COLUMNS} from tests order by created_at desc").fetchall()  # noqa: S608
+        # `processing`: the PDF's OCR and question parsing have not finished yet.
+        return tx.execute(
+            f"""select {TEST_COLUMNS}, exists (
+                  select 1 from ocr_jobs j join test_assets a on a.id = j.asset_id
+                  where a.test_id = tests.id and a.kind = 'student_pdf' and j.state in ('queued', 'running')
+                    and a.ocr_approved_at is not null) as processing
+                from tests order by created_at desc"""  # noqa: S608
+        ).fetchall()
 
 
 @router.post("/api/tests", status_code=201)
@@ -189,9 +170,16 @@ def list_tests(ctx: CtxDep, identity: IdentityDep) -> Any:
 def create_test(body: CreateTestBody, ctx: CtxDep, identity: IdentityDep) -> Any:
     with with_identity(ctx.pool, identity) as tx:
         row = tx.execute(
-            f"""insert into tests (teacher_id, title, test_type, source_type, duration_minutes)
-                values (%s, %s, %s, %s, %s) returning {TEST_COLUMNS}""",  # noqa: S608
-            (identity.user_id, body.title, body.testType, body.sourceType, body.durationMinutes),
+            f"""insert into tests (teacher_id, title, test_type, source_type, duration_minutes, authoring)
+                values (%s, %s, %s, %s, %s, %s) returning {TEST_COLUMNS}""",  # noqa: S608
+            (
+                identity.user_id,
+                body.title,
+                body.testType,
+                body.sourceType,
+                body.durationMinutes,
+                body.authoring,
+            ),
         ).fetchone()
         assert row is not None  # noqa: S101
         write_audit(
@@ -199,7 +187,12 @@ def create_test(body: CreateTestBody, ctx: CtxDep, identity: IdentityDep) -> Any
             action="test.create",
             entity="test",
             entity_id=row["id"],
-            after={"title": body.title, "testType": body.testType, "sourceType": body.sourceType},
+            after={
+                "title": body.title,
+                "testType": body.testType,
+                "sourceType": body.sourceType,
+                "authoring": body.authoring,
+            },
         )
         return row
 
@@ -240,111 +233,22 @@ def update_test(id: UUID, body: PatchTestBody, ctx: CtxDep, identity: IdentityDe
         return row
 
 
-def sync_key_items(
-    tx: Conn,
-    test_id: UUID,
-    old: Mapping[int, tuple[str, int | None]],
-    new: Mapping[int, tuple[str, int | None]],
-) -> tuple[int, int]:
-    """Keeps a draft key in step with the structure: drops removed questions, un-reviews changed ones."""
-    version = tx.execute(
-        "select id from keys.answer_key_versions where test_id = %s order by version desc limit 1", (test_id,)
-    ).fetchone()
-    if version is None:
-        return 0, 0
-    removed = tx.execute(
-        "delete from keys.answer_key_items where version_id = %s and not (question_number = any(%s))",
-        (version["id"], list(new)),
-    ).rowcount
-    changed = [n for n, shape in old.items() if n in new and new[n] != shape]
-    cleared = tx.execute(
-        """update keys.answer_key_items set reviewed_at = null, reviewed_by = null
-           where version_id = %s and question_number = any(%s) and reviewed_at is not null""",
-        (version["id"], changed),
-    ).rowcount
-    return removed, cleared
-
-
 @router.put("/api/tests/{id}/structure")
 @access(TEACHER)
 def put_structure(id: UUID, body: StructureBody, ctx: CtxDep, identity: IdentityDep) -> Any:
-    numbers = [n for s in body.sections for r in s.ranges for n in range(r.from_, r.to + 1)]
-    if len(numbers) != len(set(numbers)) or len(numbers) > MAX_QUESTIONS:
-        raise HttpError(400, "invalid_input")
     with with_identity(ctx.pool, identity) as tx:
         # The test is locked first: inserting before this would let unique-key errors
         # reveal another tenant's structure.
         test = lock_test(tx, id, draft=True)
-        if test["authoringMode"] == "composed":
-            raise HttpError(409, "composed_structure")  # imported structure changes go through re-import
-        old_shape = {
-            q["number"]: (q["question_type"], q["word_limit"])
-            for q in tx.execute(
-                "select number, question_type, word_limit from questions where test_id = %s", (id,)
-            ).fetchall()
-        }
-        tx.execute("delete from sections where test_id = %s", (id,))
-        for position, section in enumerate(body.sections, start=1):
-            created = tx.execute(
-                """insert into sections (test_id, teacher_id, position, title, suggested_minutes,
-                     passage_pages, question_pages, units_primary, units_secondary)
-                   values (%s, %s, %s, %s, %s, %s, %s, %s, %s) returning id""",
-                (
-                    id,
-                    test["teacher_id"],
-                    position,
-                    section.title,
-                    section.suggestedMinutes,
-                    section.passagePages,
-                    section.questionPages,
-                    section.unitsPrimary,
-                    section.unitsSecondary,
-                ),
-            ).fetchone()
-            assert created is not None  # noqa: S101
-            for r in section.ranges:
-                for number in range(r.from_, r.to + 1):
-                    tx.execute(
-                        """insert into questions
-                             (test_id, teacher_id, section_id, number, question_type, word_limit,
-                              answer_group)
-                           values (%s, %s, %s, %s, %s, %s, %s)""",
-                        (
-                            id,
-                            test["teacher_id"],
-                            created["id"],
-                            number,
-                            r.questionType,
-                            r.wordLimit,
-                            r.answerGroup,
-                        ),
-                    )
-        new_shape = {
-            n: (r.questionType, r.wordLimit)
-            for s in body.sections
-            for r in s.ranges
-            for n in range(r.from_, r.to + 1)
-        }
-        removed, unreviewed = sync_key_items(tx, id, old_shape, new_shape)
-        write_audit(
-            tx,
-            action="test.structure",
-            entity="test",
-            entity_id=id,
-            after={
-                "sections": len(body.sections),
-                "questions": len(numbers),
-                "keyItemsRemoved": removed,
-                "keyReviewsCleared": unreviewed,
-            },
-        )
+        counts = write_structure(tx, id, test["teacher_id"], body)
+        write_audit(tx, action="test.structure", entity="test", entity_id=id, after=counts)
         return detail(tx, test)
 
 
 def blockers_of(tx: Conn, test_id: UUID) -> list[str]:
     """Publish blockers for a test, read inside the caller's transaction."""
     test = tx.execute(
-        "select test_type, duration_minutes, authoring_mode from tests where id = %s", (test_id,)
+        "select test_type, duration_minutes, authoring from tests where id = %s", (test_id,)
     ).fetchone()
     if test is None:
         raise not_found()
@@ -353,7 +257,7 @@ def blockers_of(tx: Conn, test_id: UUID) -> list[str]:
         "select passage_pages, question_pages from sections where test_id = %s", (test_id,)
     ).fetchall()
     questions = tx.execute(
-        "select number, question_type from questions where test_id = %s", (test_id,)
+        "select number, question_type, prompt, options from questions where test_id = %s", (test_id,)
     ).fetchall()
     version = tx.execute(
         "select id from keys.answer_key_versions where test_id = %s order by version desc limit 1", (test_id,)

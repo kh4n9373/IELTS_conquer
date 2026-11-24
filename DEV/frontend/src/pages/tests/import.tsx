@@ -32,7 +32,7 @@ export function ImportPanel({ testId, onDone }: { testId?: string; onDone?: () =
   const create = useMutation({
     mutationFn: async () => {
       if (testId) {
-        await testsApi.reimport(testId, text);
+        client.setQueryData(['test', testId], await testsApi.reimport(testId, text));
         return testId;
       }
       return (await testsApi.createImport(text)).id;
@@ -40,7 +40,6 @@ export function ImportPanel({ testId, onDone }: { testId?: string; onDone?: () =
     onSuccess: (id) => {
       client.invalidateQueries({ queryKey: ['tests'] });
       client.invalidateQueries({ queryKey: ['test', id] });
-      client.invalidateQueries({ queryKey: ['test-content', id] });
       if (onDone) onDone();
       else navigate(`/tests/${id}/structure`);
     },

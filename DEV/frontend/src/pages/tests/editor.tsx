@@ -1,11 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
-import { Link, NavLink, Outlet, useLocation, useNavigate, useOutletContext, useParams, useSearchParams } from 'react-router';
-import { pdfUrlKey } from '../../components/pdf-viewer';
+import { Link, NavLink, Outlet, useLocation, useNavigate, useOutletContext, useParams } from 'react-router';
 import { ErrorAlert, Field, Icon, Loading, Notice, order, PageHead } from '../../components/ui';
 import { useI18n } from '../../lib/i18n';
 import { ImportPanel } from './import';
-import { testsApi, type CreateTest, type SourceType, type TestDetail, type TestType } from '../../lib/tests-api';
+import { testsApi, type Authoring, type CreateTest, type SourceType, type TestDetail, type TestType } from '../../lib/tests-api';
 
 export type EditorContext = { test: TestDetail };
 export const useTest = () => useOutletContext<EditorContext>();
@@ -17,7 +16,7 @@ const STEPS = [
   ['publish', 'publish'],
 ] as const;
 const SOURCES: SourceType[] = ['self_authored', 'licensed', 'commercial', 'other'];
-const TYPES: TestType[] = ['course', 'ielts_standard'];
+const MODES: Authoring[] = ['pdf', 'manual'];
 const DEFAULT_MINUTES: Record<TestType, number> = { course: 120, ielts_standard: 60 };
 
 export const detailKey = (id: string) => ['test', id] as const;
@@ -53,7 +52,7 @@ export function EditorLayout() {
       </PageHead>
       <nav className="steps in" style={order(3)} aria-label={t.tests.steps.label}>
         {STEPS.map(([path, name]) => (
-          <NavLink key={name} to={path ? `/tests/${id}/${path}` : `/tests/${id}`} end replace>
+          <NavLink key={name} to={path ? `/tests/${id}/${path}` : `/tests/${id}`} end>
             {t.tests.steps[name]}
           </NavLink>
         ))}
@@ -70,45 +69,32 @@ function DetailsForm({ test }: { test?: TestDetail }) {
   const client = useQueryClient();
   const navigate = useNavigate();
   const locked = test !== undefined && test.status !== 'draft';
-  const [type, setType] = useState<TestType>(test?.testType ?? 'course');
+  const type: TestType = test?.testType ?? 'course';
+  const [authoring, setAuthoring] = useState<Authoring>(test?.authoring ?? 'pdf');
+  // A new manual test is typed from scratch or filled from AI JSON (which brings its own details).
+  const [fromAi, setFromAi] = useState(false);
+  const importing = test === undefined && authoring === 'manual' && fromAi;
   const [minutes, setMinutes] = useState(String(test?.durationMinutes ?? DEFAULT_MINUTES.course));
-  const [file, setFile] = useState<File | null>(null);
   // A test made by a failed submit is reused by the retry, so a retry never makes a second test.
   const [createdId, setCreatedId] = useState<string | null>(null);
-  const [uploadFailed, setUploadFailed] = useState(false);
-
-  const pickType = (next: TestType) => {
-    setType(next);
-    if (minutes === String(DEFAULT_MINUTES[type])) setMinutes(String(DEFAULT_MINUTES[next]));
-  };
 
   const save = useMutation({
     mutationFn: async (values: CreateTest) => {
-      setUploadFailed(false);
       let id = test?.id ?? createdId;
       if (id === null) {
-        id = (await testsApi.create(values)).id;
+        id = (await testsApi.create({ ...values, authoring })).id;
         setCreatedId(id);
         client.invalidateQueries({ queryKey: ['tests'] });
       } else if (!locked) {
         await testsApi.update(id, values);
-      }
-      if (file) {
-        try {
-          await testsApi.uploadPdf(id, file);
-        } catch (err) {
-          setUploadFailed(true);
-          throw err;
-        }
-        setFile(null);
-        client.invalidateQueries({ queryKey: pdfUrlKey(id) });
       }
       return id;
     },
     onSuccess: (id) => {
       client.invalidateQueries({ queryKey: detailKey(id) });
       client.invalidateQueries({ queryKey: ['tests'] });
-      if (test === undefined) navigate(`/tests/${id}/structure`);
+      // Replaces the create form, so Back from the editor never lands on an empty form.
+      if (test === undefined) navigate(`/tests/${id}/structure`, { replace: true });
     },
   });
 
@@ -122,21 +108,11 @@ function DetailsForm({ test }: { test?: TestDetail }) {
       durationMinutes: Number(minutes),
     });
   };
-  const pdf = test?.studentPdf ?? null;
 
   return (
     <form className="details" onSubmit={submit}>
-      <div className="stack">
+      <div className="stack" hidden={importing}>
         <Field label={t.tests.form.title} name="title" type="text" maxLength={120} required defaultValue={test?.title} disabled={locked} />
-        <fieldset disabled={locked}>
-          <legend>{t.tests.form.type}</legend>
-          {TYPES.map((kind) => (
-            <button key={kind} type="button" className={`type-option${type === kind ? ' on' : ''}`} aria-pressed={type === kind} onClick={() => pickType(kind)}>
-              <strong>{kind === 'course' ? t.tests.form.typeCourse : t.tests.form.typeIelts}</strong>
-              <span>{kind === 'course' ? t.tests.form.typeCourseBody : t.tests.form.typeIeltsBody}</span>
-            </button>
-          ))}
-        </fieldset>
         <div className="pair">
           <div className="field">
             <label htmlFor="source">{t.tests.form.source}</label>
@@ -148,24 +124,32 @@ function DetailsForm({ test }: { test?: TestDetail }) {
         </div>
       </div>
       <div className="stack">
-        {test?.authoringMode === 'composed' ? (
-          <p className="muted">{t.tests.content.noPdf}</p>
-        ) : (
-        <div className="field">
-          <label htmlFor="pdf">{t.tests.form.pdf}</label>
-          <div className={`drop${uploadFailed ? ' is-bad' : ''}`}>
-            <strong>{pdf ? t.tests.form.pdfDone(pdf.pageCount) : t.tests.form.pdfNone}</strong>
-            <input id="pdf" type="file" accept="application/pdf" required={!pdf && createdId === null} disabled={locked} onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-            {pdf && <span className="muted">{t.tests.form.pdfChange}</span>}
-          </div>
-        </div>
+        {/* The way a test is made is fixed once it exists: the next step depends on it. */}
+        <fieldset disabled={test !== undefined}>
+          <legend>{t.tests.form.mode}</legend>
+          {MODES.filter((mode) => test === undefined || mode === authoring).map((mode) => (
+            <button key={mode} type="button" className={`type-option mode-option${authoring === mode ? ' on' : ''}`} aria-pressed={authoring === mode} onClick={() => setAuthoring(mode)}>
+              <strong>{t.tests.form.modes[mode]}</strong>
+              <span>{t.tests.form.modesBody[mode]}</span>
+            </button>
+          ))}
+        </fieldset>
+        {test === undefined && authoring === 'manual' && (
+          <fieldset>
+            <legend>{t.tests.mode.source}</legend>
+            {[false, true].map((ai) => (
+              <button key={String(ai)} type="button" className={`type-option${fromAi === ai ? ' on' : ''}`} aria-pressed={fromAi === ai} onClick={() => setFromAi(ai)}>
+                <strong>{ai ? t.tests.mode.fromAi : t.tests.mode.scratch}</strong>
+                <span>{ai ? t.tests.mode.fromAiBody : t.tests.mode.scratchBody}</span>
+              </button>
+            ))}
+          </fieldset>
         )}
+        {importing && <ImportPanel />}
         <ErrorAlert error={save.error} />
-        {uploadFailed && <p className="muted">{t.tests.form.uploadHelp}</p>}
         {save.isSuccess && test !== undefined && <Notice>{t.tests.form.saved}</Notice>}
-        {test?.authoringMode !== 'composed' && <p className="muted">{t.tests.form.ocrNotice}</p>}
         {locked && <p className="muted">{t.tests.locked}</p>}
-        <button className="primary-wide" disabled={save.isPending || locked}>
+        <button className="primary-wide" hidden={importing} disabled={save.isPending || locked}>
           <span>{save.isPending ? t.tests.form.working : test === undefined ? t.tests.next : t.tests.form.save}</span>
           <Icon name="arrow" />
         </button>
@@ -174,13 +158,8 @@ function DetailsForm({ test }: { test?: TestDetail }) {
   );
 }
 
-/** Create: pick PDF or composed first. Composed tests come from AI JSON for now. */
 export function NewTestPage() {
   const { t } = useI18n();
-  const m = t.tests.mode;
-  const [params, setParams] = useSearchParams();
-  const mode = params.get('mode') === 'composed' ? 'composed' : 'pdf';
-  const pick = (next: 'pdf' | 'composed') => setParams(next === 'pdf' ? {} : { mode: next }, { replace: true });
   return (
     <>
       <Link className="back-link in" style={order(0)} to="/tests" viewTransition>
@@ -188,36 +167,7 @@ export function NewTestPage() {
         <span>{t.tests.all}</span>
       </Link>
       <PageHead title={t.tests.titles.create} />
-      <div className="in stack" style={order(3)}>
-        <fieldset className="mode-pick">
-          <legend>{m.label}</legend>
-          {(['pdf', 'composed'] as const).map((kind) => (
-            <button key={kind} type="button" className={`type-option${mode === kind ? ' on' : ''}`} aria-pressed={mode === kind} onClick={() => pick(kind)}>
-              <strong>{m[kind]}</strong>
-              <span>{kind === 'pdf' ? m.pdfBody : m.composedBody}</span>
-            </button>
-          ))}
-        </fieldset>
-        {mode === 'pdf' ? (
-          <DetailsForm />
-        ) : (
-          <>
-            <fieldset className="mode-pick">
-              <legend>{m.source}</legend>
-              <button type="button" className="type-option on" aria-pressed="true">
-                <strong>{m.fromAi}</strong>
-                <span>{m.fromAiBody}</span>
-              </button>
-              <button type="button" className="type-option" disabled>
-                <strong>{m.scratch}</strong>
-                <span>{m.scratchBody}</span>
-              </button>
-            </fieldset>
-            <p className="muted">{t.tests.importAi.lede}</p>
-            <ImportPanel />
-          </>
-        )}
-      </div>
+      <div className="in" style={order(3)}><DetailsForm /></div>
     </>
   );
 }

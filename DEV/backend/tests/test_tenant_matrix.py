@@ -44,8 +44,6 @@ MATRIX: dict[str, tuple[Any, int | None]] = {
     "POST /api/tests/import/validate": ({"json": "{}"}, None),
     "POST /api/tests/import": ({"json": "{}"}, None),
     "POST /api/tests/{id}/reimport": ({"json": IMPORT_JSON}, 404),
-    "GET /api/tests/{id}/content": (None, 404),
-    "PUT /api/tests/{id}/content": ({"content": {"sections": []}}, 404),
     "POST /api/tests": ({"title": "Matrix", **NEW_TEST}, None),
     "GET /api/tests/{id}": (None, 404),
     "PATCH /api/tests/{id}": ({"title": "Hacked"}, 404),

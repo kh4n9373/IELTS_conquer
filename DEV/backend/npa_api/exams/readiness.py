@@ -10,6 +10,7 @@ Row = Mapping[str, Any]
 IELTS_SECTIONS = 3
 IELTS_QUESTIONS = 40
 IELTS_MINUTES = 60
+CHOICE_TYPES = {"multiple_choice", "multiple_choice_multi"}
 
 
 def readiness(
@@ -22,16 +23,20 @@ def readiness(
         if code not in blockers:
             blockers.append(code)
 
-    # A composed (imported) test shows its text in the room: no PDF and no page mapping.
-    composed = test.get("authoring_mode") == "composed"
+    manual = test.get("authoring") == "manual"
     pdf = next((a for a in assets if a["kind"] == "student_pdf"), None)
-    if pdf is None and not composed:
+    if pdf is None and not manual:
         add("missing_pdf")
     if not sections:
         add("no_sections")
+    if manual and any(
+        not q.get("prompt") or (q.get("question_type") in CHOICE_TYPES and len(q.get("options") or []) < 2)
+        for q in questions
+    ):
+        add("incomplete_question")
 
     page_count = pdf.get("page_count") if pdf is not None else None
-    if pdf is not None and not composed:
+    if pdf is not None and not manual:
         for section in sections:
             pages = [*section["passage_pages"], *section["question_pages"]]
             # An unknown page count cannot confirm any mapped page.

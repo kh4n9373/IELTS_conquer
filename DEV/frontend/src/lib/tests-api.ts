@@ -2,6 +2,7 @@ import { api } from './api';
 
 export type TestType = 'ielts_standard' | 'course';
 export type SourceType = 'self_authored' | 'licensed' | 'commercial' | 'other';
+export type Authoring = 'pdf' | 'manual';
 export type TestStatus = 'draft' | 'published' | 'archived';
 
 export const QUESTION_TYPES = [
@@ -10,6 +11,7 @@ export const QUESTION_TYPES = [
   'matching_information',
   'sentence_endings',
   'multiple_choice',
+  'multiple_choice_multi',
   'tfng',
   'ynng',
   'table_completion',
@@ -29,6 +31,7 @@ export const GROUP_OF: Record<QuestionType, QuestionGroup> = {
   matching_information: 'matching',
   sentence_endings: 'matching',
   multiple_choice: 'multiple_choice',
+  multiple_choice_multi: 'multiple_choice',
   tfng: 'tfng',
   ynng: 'tfng',
   table_completion: 'completion',
@@ -42,22 +45,25 @@ export const GROUP_OF: Record<QuestionType, QuestionGroup> = {
 export type TestSummary = {
   id: string;
   title: string;
+  authoring: Authoring;
   testType: TestType;
   sourceType: SourceType;
   status: TestStatus;
   durationMinutes: number;
   publishedAt: string | null;
   createdAt: string;
-  authoringMode: 'pdf' | 'composed';
+  /** Only in the list: OCR and question parsing still running. */
+  processing?: boolean;
 };
 
 export type JobState = { state: 'queued' | 'running' | 'done' | 'failed'; errorCode: string | null };
-export type SectionQuestion = { number: number; questionType: QuestionType; wordLimit: number | null };
+export type SectionQuestion = { number: number; questionType: QuestionType; wordLimit: number | null; answerGroup?: number | null; prompt: string; options: string[] };
 export type SectionRange = { from: number; to: number; questionType: QuestionType; wordLimit: number | null; answerGroup?: number | null };
 export type Section = {
   id: string;
   position: number;
   title: string;
+  body: string;
   suggestedMinutes: number | null;
   passagePages: number[];
   questionPages: number[];
@@ -76,9 +82,9 @@ export type KeyItem = {
   number: number;
   answers: string[];
   origin: 'manual' | 'text_layer' | 'scan' | 'import';
-  flagged: boolean;
   /** Why the AI was unsure, for imported answers. */
   note?: string | null;
+  flagged: boolean;
   reviewed: boolean;
   sourcePage: number | null;
   /** [x0, y0, x1, y1] as fractions of the displayed page, origin top-left. */
@@ -106,30 +112,15 @@ export type StructureSection = {
   unitsPrimary: string[];
   unitsSecondary: string[];
   ranges: { from: number; to: number; questionType: QuestionType; wordLimit?: number; answerGroup?: number }[];
+  body?: string;
+  /** `answers` [] clears that question's answer; leaving it out keeps the key as it is. */
+  questions?: { number: number; questionType: QuestionType; wordLimit?: number; prompt: string; options: string[]; answerGroup?: number; answers?: string[] }[];
 };
 
-export type CreateTest = { title: string; sourceType: SourceType; testType: TestType; durationMinutes: number };
+export type CreateTest = { title: string; sourceType: SourceType; testType: TestType; durationMinutes: number; authoring?: Authoring };
 
-/** Student-safe text of an imported (composed) test. Never holds answers. */
-export type ContentOption = { key: string; text: string };
-export type ContentQuestion = { number: number; prompt: string | null; options: ContentOption[] | null };
-export type ContentGroup = {
-  type: QuestionType;
-  instructions: string;
-  word_limit: number | null;
-  options: ContentOption[];
-  options_reusable: boolean;
-  select_count: number;
-  prompt: string | null;
-  content: string | null;
-  questions: ContentQuestion[];
-};
-export type ContentSection = {
-  title: string;
-  passage: { title: string | null; paragraphs: { label: string | null; text: string }[] };
-  groups: ContentGroup[];
-};
-export type ExamContent = { sections: ContentSection[] };
+const base = (id: string) => `/api/tests/${id}`;
+
 export type ImportIssue = { code: string; path: string; number: number | null; message: string };
 export type ImportReport = {
   ok: boolean;
@@ -138,16 +129,21 @@ export type ImportReport = {
   summary: { title: string; testType: TestType; sections: number; questions: number; byType: Record<string, number>; uncertain: number } | null;
 };
 
-const base = (id: string) => `/api/tests/${id}`;
-
 export const testsApi = {
+  // Import from AI (panxg-exam/v1): becomes a manual test.
+  validateImport: (json: string) => api.post<ImportReport>('/api/tests/import/validate', { json }),
+  createImport: (json: string) => api.post<TestSummary>('/api/tests/import', { json }),
+  reimport: (id: string, json: string) => api.post<TestDetail>(`/api/tests/${id}/reimport`, { json }),
   list: () => api.get<TestSummary[]>('/api/tests'),
   create: (body: CreateTest) => api.post<TestSummary>('/api/tests', body),
   get: (id: string) => api.get<TestDetail>(base(id)),
   update: (id: string, body: Partial<CreateTest>) => api.patch<TestSummary>(base(id), body),
   putStructure: (id: string, sections: StructureSection[]) => api.put<TestDetail>(`${base(id)}/structure`, { sections }),
   readiness: (id: string) => api.get<{ ready: boolean; blockers: string[] }>(`${base(id)}/readiness`),
-  uploadPdf: (id: string, file: File) => api.upload<{ pageCount: number; hasTextLayer: boolean }>(`${base(id)}/pdf`, file),
+  /** `process` is the teacher's consent to OCR the file and parse its questions. */
+  uploadPdf: (id: string, file: File, process = false) =>
+    api.upload<{ pageCount: number; hasTextLayer: boolean }>(`${base(id)}/pdf${process ? '?process=true' : ''}`, file),
+  retryOcr: (id: string) => api.post<JobState>(`${base(id)}/ocr`),
   pdfUrl: (id: string) => api.get<{ url: string; expiresIn: number }>(`${base(id)}/pdf-url`),
   publish: (id: string) => api.post<TestSummary>(`${base(id)}/publish`),
   archive: (id: string) => api.post<TestSummary>(`${base(id)}/archive`),
@@ -162,10 +158,4 @@ export const testsApi = {
   uploadKeySource: (id: string, file: File) => api.upload<KeySourceInfo>(`${base(id)}/key-source`, file),
   importKey: (id: string) => api.post<ImportCounts>(`${base(id)}/key/import`),
   scanKey: (id: string) => api.post<JobState>(`${base(id)}/key/scan`),
-  // Import from AI (panxg-exam/v1).
-  validateImport: (json: string) => api.post<ImportReport>('/api/tests/import/validate', { json }),
-  createImport: (json: string) => api.post<TestSummary>('/api/tests/import', { json }),
-  reimport: (id: string, json: string) => api.post<TestDetail>(`${base(id)}/reimport`, { json }),
-  getContent: (id: string) => api.get<{ content: ExamContent }>(`${base(id)}/content`),
-  putContent: (id: string, content: ExamContent) => api.put<{ content: ExamContent }>(`${base(id)}/content`, { content }),
 };

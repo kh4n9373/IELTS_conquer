@@ -1,4 +1,3 @@
-import type { ExamContent } from './tests-api';
 import { api } from './api';
 import type { QuestionType } from './tests-api';
 
@@ -70,17 +69,16 @@ export type MyAssignment = {
 
 export type ExamRoom = {
   title: string;
+  authoring: 'pdf' | 'manual';
   durationMinutes: number;
   pageCount: number | null;
-  authoringMode?: 'pdf' | 'composed';
-  content?: ExamContent | null;
   questionCount: number;
   mode: AssignmentMode;
   status: AttemptStatus;
   deadlineAt: string;
   serverNow: string;
-  sections: { position: number; title: string; passagePages: number[]; questionPages: number[]; numbers: number[] }[];
-  questions: { number: number; type: QuestionType; wordLimit: number | null; group: number | null }[];
+  sections: { position: number; title: string; body: string; passagePages: number[]; questionPages: number[]; numbers: number[] }[];
+  questions: { number: number; type: QuestionType; wordLimit: number | null; group: number | null; prompt: string; options: string[] }[];
   answers: { number: number; value: string; marked: boolean; seq: number }[];
 };
 export type AnswerItem = { number: number; value: string; markedForReview: boolean; seq: number };

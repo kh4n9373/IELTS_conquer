@@ -1,4 +1,3 @@
-import copy
 import json
 import re
 from pathlib import Path
@@ -75,11 +74,22 @@ def test_errors_are_reported() -> None:
     assert "invalid_answer" in codes(bad)
 
 
-def test_student_content_has_no_answers() -> None:
+def test_to_manual_maps_groups_onto_questions() -> None:
     doc, _, _ = schema_v1.check(json.dumps(example()))
     assert doc is not None
-    text = json.dumps(schema_v1.student_content(doc))
-    assert "answers" not in text and "uncertain" not in text and "ai_notes" not in text
+    sections = schema_v1.to_manual(doc)
+    qs = [q for s in sections for q in s["questions"]]
+    assert [q["number"] for q in qs] == list(range(1, 13))
+    assert sections[0]["body"].startswith("Rooftop gardens")
+    for q in qs:
+        assert len(q["prompt"]) <= schema_v1.MAX_PROMPT
+        if schema_v1.QUESTION_GROUPS[q["type"]] == "multiple_choice":
+            assert all(a in schema_v1.LETTERS[: len(q["options"])] for a in q["answers"])
+        elif q["options"]:
+            assert all(a in q["options"] for a in q["answers"])  # the student picks a key
+    assert [(q["number"], q["answer_group"]) for q in qs if q["answer_group"]] == [(9, 9), (10, 9)]
+    assert "{{" not in json.dumps([q["prompt"] for q in qs])
+    assert [q["number"] for q in qs if q["uncertain"]] == [12]
 
 
 def test_json_schema_is_generated() -> None:
@@ -110,11 +120,11 @@ def test_validate_returns_errors_and_summary(h: Harness, t: dict[str, str]) -> N
     assert do_import(h, t["a"], {}).status == 400
 
 
-def test_import_creates_composed_test_with_unreviewed_key(h: Harness, t: dict[str, str]) -> None:
+def test_import_creates_manual_test_with_unreviewed_key(h: Harness, t: dict[str, str]) -> None:
     res = do_import(h, t["a"], example())
     assert res.status == 201
     tid = res.json["id"]
-    assert res.json["authoringMode"] == "composed"
+    assert res.json["authoring"] == "manual"
     test = h.call(t["a"], "GET", f"/api/tests/{tid}").json
     assert sum(len(s["questions"]) for s in test["sections"]) == 12
     grouped = [q for s in test["sections"] for q in s["questions"] if q["answerGroup"]]
@@ -126,31 +136,27 @@ def test_import_creates_composed_test_with_unreviewed_key(h: Harness, t: dict[st
     assert key["items"][5]["answers"] == ["four", "4"]
     ready = h.call(t["a"], "GET", f"/api/tests/{tid}/readiness").json
     assert ready["blockers"] == ["unreviewed_answer"]  # no PDF needed
-    # Other tenants cannot see it; structure edits go through re-import.
-    assert h.call(t["b"], "GET", f"/api/tests/{tid}/content").status == 404
-    put = h.call(t["a"], "PUT", f"/api/tests/{tid}/structure", {"sections": []})
-    assert put.status == 409
+    assert h.call(t["b"], "GET", f"/api/tests/{tid}").status == 404
 
 
-def test_content_edit_takes_text_only(h: Harness, t: dict[str, str]) -> None:
+def test_manual_editor_save_keeps_answer_groups(h: Harness, t: dict[str, str]) -> None:
     tid = do_import(h, t["a"], example()).json["id"]
-    content = h.call(t["a"], "GET", f"/api/tests/{tid}/content").json["content"]
-    edited = copy.deepcopy(content)
-    edited["sections"][0]["passage"]["paragraphs"][0]["text"] = "Fixed typo."
-    edited["sections"][0]["title"] = "Bài 1"
-    edited["sections"][0]["groups"][0]["questions"][0]["number"] = 77  # ignored: not a text field
-    res = h.call(t["a"], "PUT", f"/api/tests/{tid}/content", {"content": edited})
-    assert res.status == 200
-    saved = res.json["content"]
-    assert saved["sections"][0]["passage"]["paragraphs"][0]["text"] == "Fixed typo."
-    assert saved["sections"][0]["groups"][0]["questions"][0]["number"] == 1
-    assert h.call(t["a"], "GET", f"/api/tests/{tid}").json["sections"][0]["title"] == "Bài 1"
-    removed = copy.deepcopy(content)
-    removed["sections"][0]["groups"][0]["questions"].pop()
-    assert h.call(t["a"], "PUT", f"/api/tests/{tid}/content", {"content": removed}).status == 400
-    blank = copy.deepcopy(content)
-    blank["sections"][0]["groups"][2]["content"] = "no blanks"
-    assert h.call(t["a"], "PUT", f"/api/tests/{tid}/content", {"content": blank}).status == 400
+    sections = h.call(t["a"], "GET", f"/api/tests/{tid}").json["sections"]
+    keep = ("number", "questionType", "wordLimit", "prompt", "options", "answerGroup")
+    body = {
+        "sections": [
+            {
+                "title": s["title"],
+                "body": s["body"],
+                "questions": [{k: q[k] for k in keep if q[k] is not None} for q in s["questions"]],
+            }
+            for s in sections
+        ]
+    }
+    assert h.call(t["a"], "PUT", f"/api/tests/{tid}/structure", body).status == 200
+    again = h.call(t["a"], "GET", f"/api/tests/{tid}").json["sections"]
+    grouped = [(q["number"], q["answerGroup"]) for s in again for q in s["questions"] if q["answerGroup"]]
+    assert grouped == [(9, 9), (10, 9)]
 
 
 def test_reimport_replaces_draft_and_published_is_locked(h: Harness, t: dict[str, str]) -> None:
@@ -193,10 +199,11 @@ def test_student_room_gets_text_without_answers(h: Harness, t: dict[str, str]) -
     )
     assert started.status == 200
     room = h.call(student.cookie, "GET", f"/api/attempts/{started.json['attemptId']}").json
-    assert room["authoringMode"] == "composed"
-    assert room["content"]["sections"][0]["passage"]["title"] == "Rooftop gardens"
-    text = json.dumps(room["content"])
-    assert 'rainwater"]' not in text and "answers" not in text and "uncertain" not in text
+    assert room["authoring"] == "manual"
+    assert room["sections"][0]["body"].startswith("Rooftop gardens")
+    assert room["questions"][0]["prompt"]
+    text = json.dumps(room)
+    assert "uncertain" not in text and "The answer key page" not in text
 
 
 def test_guide_is_served_to_teachers(h: Harness, t: dict[str, str]) -> None:

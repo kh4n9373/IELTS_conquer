@@ -74,7 +74,6 @@ const router = createBrowserRouter(
           <Route path="/assignments/:id" element={<AssignmentDetailPage />} />
           <Route path="/tests" element={<TestListPage />} />
           <Route path="/tests/new" element={<NewTestPage />} />
-          <Route path="/tests/import" element={<Navigate to="/tests/new?mode=composed" replace />} />
           <Route path="/tests/:id" element={<EditorLayout />}>
             <Route index element={<DetailsPage />} />
             <Route path="structure" element={<StructurePage />} />

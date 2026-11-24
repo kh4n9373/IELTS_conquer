@@ -1,3 +1,4 @@
+import re
 import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -38,6 +39,9 @@ def normalize(text: str) -> str:
 
 def _canonical(q: GradableQuestion, text: str, rules: RuleSet) -> str:
     s = normalize(text)
+    if q.question_type == "multiple_choice_multi":
+        # "C, A" and "a,c" are the same pick: an unordered set of option letters.
+        return ",".join(sorted(set(re.findall(r"[a-z]", s))))
     forms = dict(_FORMS.get(q.question_type, {}))
     if rules == "pilot-1" and q.question_type in _FORMS:
         forms["ng"] = "not given"
@@ -51,7 +55,7 @@ def _accepted(q: GradableQuestion, rules: RuleSet) -> set[str]:
 def _strip_article(s: str) -> str:
     for art in _ARTICLES:
         if s.startswith(art):
-            return s[len(art):]
+            return s[len(art) :]
     return s
 
 

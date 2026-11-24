@@ -149,13 +149,14 @@ def test_full_flow_assign_take_submit_result(browser: Browser) -> None:
     expect(page).to_have_url(re.compile(r"/results/"))
     expect(page.get_by_text("2/10", exact=True)).to_be_visible()
     expect(page.get_by_text("20%", exact=True)).to_be_visible()
-    expect(page.get_by_text("Passage 1: 2/5")).to_be_visible()
+    sections = page.get_by_role("region", name="Theo từng phần")
+    expect(sections.get_by_role("listitem").filter(has_text="Passage 1")).to_contain_text("2/5")
     row = page.get_by_role("row").filter(has_text=f"{KEY_PREFIX}3")
     expect(row).to_contain_text("wrong guess")
     expect(row).to_contain_text("Sai")
-    expect(page.get_by_role("row").filter(has_text=re.compile(rf"{KEY_PREFIX}1$"))).to_contain_text("Đúng")
-    page.get_by_role("button", name="Chỉ xem câu sai").click()
-    expect(page.get_by_role("row").filter(has_text=re.compile(rf"{KEY_PREFIX}1$"))).to_have_count(0)
+    expect(page.get_by_role("row").filter(has_text=re.compile(rf"{KEY_PREFIX}1\s*(Đúng|Sai)$"))).to_contain_text("Đúng")
+    page.get_by_role("button", name=re.compile("^Chưa đúng")).click()
+    expect(page.get_by_role("row").filter(has_text=re.compile(rf"{KEY_PREFIX}1\s*(Đúng|Sai)$"))).to_have_count(0)
     expect(page.get_by_role("row").filter(has_text=f"{KEY_PREFIX}3")).to_have_count(1)
 
 

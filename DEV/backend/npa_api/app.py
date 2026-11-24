@@ -38,7 +38,7 @@ UPLOAD_PATH = re.compile(
 # Imported exam JSON (1 MB of text, escaped inside a JSON string) and its step-2 edits.
 IMPORT_LIMIT = 3 * 1024 * 1024
 IMPORT_PATH = re.compile(
-    r"/api/tests/(import(/validate)?|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/(reimport|content))"
+    r"/api/tests/(import(/validate)?|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/reimport)"
 )
 
 

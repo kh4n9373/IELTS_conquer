@@ -200,10 +200,10 @@ def test_room_uses_allowlisted_fields_only(h: Harness, room: Room) -> None:
         attempt, _ = enter(h, s, aid)
         view = h.call(s.cookie, "GET", f"/api/attempts/{attempt}").json
     assert set(view) == {
-        "title", "durationMinutes", "pageCount", "questionCount", "mode", "status", "deadlineAt",
-        "serverNow", "sections", "questions", "answers", "authoringMode", "content",
+        "title", "authoring", "durationMinutes", "pageCount", "questionCount", "mode", "status", "deadlineAt",
+        "serverNow", "sections", "questions", "answers",
     }  # fmt: skip
-    assert set(view["questions"][0]) == {"number", "type", "wordLimit", "group"}
+    assert set(view["questions"][0]) == {"number", "type", "wordLimit", "group", "prompt", "options"}
 
 
 def test_room_sections_list_their_question_numbers_and_nothing_else(h: Harness, room: Room) -> None:
@@ -211,7 +211,14 @@ def test_room_sections_list_their_question_numbers_and_nothing_else(h: Harness, 
     with h.later(hours=2):
         attempt, _ = enter(h, s, aid)
         view = h.call(s.cookie, "GET", f"/api/attempts/{attempt}").json
-    assert set(view["sections"][0]) == {"position", "title", "passagePages", "questionPages", "numbers"}
+    assert set(view["sections"][0]) == {
+        "position",
+        "title",
+        "body",
+        "passagePages",
+        "questionPages",
+        "numbers",
+    }
     listed = [n for sec in view["sections"] for n in sec["numbers"]]
     assert listed == sorted(q["number"] for q in view["questions"]) and listed
     assert all(isinstance(n, int) for n in listed)
