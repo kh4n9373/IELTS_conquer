@@ -62,6 +62,17 @@ export function LangSwitch() {
   );
 }
 
+/** Google photo when there is one, else the first letter of the name. */
+export function Avatar({ name, url, size = 40 }: { name: string; url?: string | null; size?: number }) {
+  const [broken, setBroken] = useState(false);
+  const style = { width: size, height: size, fontSize: size * 0.45 } as CSSProperties;
+  if (url && !broken) {
+    // Google's image host refuses requests that carry a referrer from another site.
+    return <img className="avatar" src={url} alt="" style={style} referrerPolicy="no-referrer" onError={() => setBroken(true)} />;
+  }
+  return <span className="avatar avatar-initial" style={style} aria-hidden="true">{name.trim().charAt(0).toUpperCase() || '?'}</span>;
+}
+
 export function Field({ label, hint, ...props }: { label: string; hint?: string } & InputHTMLAttributes<HTMLInputElement>) {
   const id = useId();
   return (
@@ -178,7 +189,7 @@ export function Disclosure({ label, icon, children }: { label: string; icon: Ico
   );
 }
 
-export type ConfirmRequest = { title: string; body: string; action: string; run: () => void };
+export type ConfirmRequest = { title: string; body: string; action: string; run: () => void; tone?: 'danger' | 'go' };
 
 /** Accessible replacement for window.confirm. Render `dialog` once per page. */
 export function useConfirm() {
@@ -220,7 +231,7 @@ export function useConfirm() {
           <p className="muted">{request.body}</p>
           <div className="confirm-actions">
             <button type="button" className="secondary" onClick={() => close()}>{t.common.cancel}</button>
-            <button type="button" className="danger-solid" onClick={() => close(request.run)}>{request.action}</button>
+            <button type="button" className={request.tone === 'go' ? undefined : 'danger-solid'} autoFocus={request.tone === 'go'} onClick={() => close(request.run)}>{request.action}</button>
           </div>
         </>
       )}

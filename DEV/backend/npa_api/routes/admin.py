@@ -11,6 +11,7 @@ from ..core.http import (
     CtxDep,
     EmailField,
     GuardedRoute,
+    HttpError,
     IdentityDep,
     NameField,
     access,
@@ -34,8 +35,9 @@ class TeacherBody(Body):
 def list_teachers(ctx: CtxDep, identity: IdentityDep) -> Any:
     with with_identity(ctx.pool, identity) as tx:
         return tx.execute(
-            """select id, email, display_name as "displayName", status, created_at as "createdAt"
-               from users where role = 'teacher' order by created_at"""
+            """select id, email, display_name as "displayName", status, avatar_url as "avatarUrl",
+                 phone, referral_source as "referralSource", created_at as "createdAt"
+               from users where role = 'teacher' order by status <> 'pending', created_at"""
         ).fetchall()
 
 
@@ -95,3 +97,18 @@ def lock_teacher(id: UUID, ctx: CtxDep, identity: IdentityDep) -> None:
 @access(ADMIN)
 def unlock_teacher(id: UUID, ctx: CtxDep, identity: IdentityDep) -> None:
     _set_status(ctx, identity, id, "unlock", "active")
+
+
+@router.post("/api/admin/teachers/{id}/approve", status_code=204)
+@access(ADMIN)
+def approve_teacher(id: UUID, ctx: CtxDep, identity: IdentityDep) -> None:
+    """Activates a teacher who signed up with Google. Rejecting one is a lock."""
+    with with_identity(ctx.pool, identity) as tx:
+        current = tx.execute(
+            "select status from users where id = %s and role = 'teacher' for update", (id,)
+        ).fetchone()
+        if current is None:
+            raise not_found()
+        if current["status"] != "pending":
+            raise HttpError(409, "not_pending")
+    _set_status(ctx, identity, id, "approve", "active")

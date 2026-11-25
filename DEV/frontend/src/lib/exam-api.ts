@@ -37,6 +37,76 @@ export type Recipient = {
 };
 export type AssignmentDetail = Assignment & { students: Recipient[] };
 
+export type AnswerResult = 'ok' | 'bad' | 'blank';
+export type StatsChoice = { value: string; text: string; isKey: boolean; students: string[]; count: number };
+export type StatsQuestion = {
+  number: number;
+  type: QuestionType;
+  topic: string;
+  prompt: string;
+  key: string[];
+  percent: number;
+  correct: number;
+  /** Estimated from the gaps between saves. */
+  avgSeconds: number | null;
+  flags: number;
+  choices: StatsChoice[];
+  blank: string[];
+  trap: { value: string; count: number } | null;
+  discrimination: 'good' | 'flat' | 'reverse' | null;
+  explanation: { text: string; source: 'ai' | 'teacher' } | null;
+};
+export type StatsTopic = { name: string; percent: number; avgSeconds: number | null; questions: number[] };
+export type StatsAnswer = { number: number; given: string; result: AnswerResult; flagged: boolean; seconds: number | null; othersMissed: number };
+export type StatsStudent = {
+  id: string;
+  name: string;
+  attemptId: string;
+  rank: number;
+  correct: number;
+  total: number;
+  percent: number;
+  band: string | null;
+  seconds: number;
+  blank: number;
+  trailingBlank: number;
+  /** Percent correct per topic, in the order of `topics`. */
+  topics: number[];
+  mistakes: { shared: number; own: number; blank: number };
+  /** [seconds from start, answers saved so far] */
+  pace: [number, number][];
+  answers: StatsAnswer[];
+};
+export type StatsSummary = {
+  mean: number;
+  median: number;
+  best: { name: string; correct: number };
+  worst: { name: string; correct: number };
+  avgSeconds: number;
+  blank: number;
+  blankStudents: string[];
+  passed: number;
+  allCorrect: number;
+  allWrong: number;
+  flagTotal: number;
+  flagCorrect: number;
+  strongTopic: { name: string; percent: number } | null;
+  weakTopic: { name: string; percent: number } | null;
+  topTrap: { number: number; value: string; count: number; key: string[] } | null;
+  outOfTime: { name: string; blank: number; seconds: number }[];
+  trapCount: number;
+  bands: { strong: number; weak: number };
+};
+export type AssignmentStats = {
+  graded: number;
+  total: number;
+  durationSeconds: number;
+  summary: StatsSummary | null;
+  topics: StatsTopic[];
+  questions: StatsQuestion[];
+  students: StatsStudent[];
+};
+
 export type CreateAssignment = {
   testId: string;
   classId: string;
@@ -135,6 +205,7 @@ export const examApi = {
   getAssignment: (id: string) => api.get<AssignmentDetail>(`${a}/${id}`),
   updateAssignment: (id: string, body: PatchAssignment) => api.patch<Assignment>(`${a}/${id}`, body),
   cancelAssignment: (id: string) => api.post(`${a}/${id}/cancel`),
+  assignmentStats: (id: string) => api.get<AssignmentStats>(`${a}/${id}/stats`),
   // Student
   myAssignments: () => api.get<MyAssignment[]>('/api/my/assignments'),
   startAttempt: (assignmentId: string, device: string) =>

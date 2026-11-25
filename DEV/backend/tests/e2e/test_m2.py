@@ -11,7 +11,9 @@ import pytest
 from fakes import make_jbig2_pdf, make_jpx_pdf, make_pdf
 from playwright.sync_api import Page, expect, sync_playwright
 from test_m1 import WEB_URL, login, provision_teacher
-from test_m1 import servers as servers  # noqa: PLC0414  (reused fixture: API with in-memory files + web dev server)
+from test_m1 import (
+    servers as servers,  # noqa: PLC0414  (reused fixture: API with in-memory files + web dev server)
+)
 
 PDF_PAGES = 15
 

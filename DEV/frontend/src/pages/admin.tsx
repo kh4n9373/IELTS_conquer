@@ -3,7 +3,7 @@ import type { FormEvent } from 'react';
 import { api, type Teacher } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 import { useFreshItems } from '../lib/motion';
-import { Empty, ErrorAlert, Field, formValues, Icon, Loading, Notice, order, PageHead, Section } from '../components/ui';
+import { Avatar, Empty, ErrorAlert, Field, formValues, Icon, Loading, Notice, order, PageHead, Section } from '../components/ui';
 
 export function AdminPage() {
   const { t } = useI18n();
@@ -15,7 +15,8 @@ export function AdminPage() {
     onSuccess: refresh,
   });
   const setLock = useMutation({
-    mutationFn: ({ id, action }: { id: string; action: 'lock' | 'unlock' }) => api.post(`/api/admin/teachers/${id}/${action}`),
+    mutationFn: ({ id, action }: { id: string; action: 'lock' | 'unlock' | 'approve' }) =>
+      api.post(`/api/admin/teachers/${id}/${action}`),
     onSuccess: refresh,
   });
   const listRef = useFreshItems<HTMLUListElement>(teachers.data?.map((x) => x.id).join() ?? '');
@@ -24,8 +25,10 @@ export function AdminPage() {
     const form = e.currentTarget;
     create.mutate(formValues(form), { onSuccess: () => form.reset() });
   };
-  const active = teachers.data?.filter((x) => x.status === 'active').length ?? 0;
-  const locked = (teachers.data?.length ?? 0) - active;
+  const count = (status: Teacher['status']) => teachers.data?.filter((x) => x.status === status).length ?? 0;
+  const active = count('active');
+  const locked = count('locked');
+  const waiting = count('pending');
 
   return (
     <>
@@ -34,6 +37,7 @@ export function AdminPage() {
           <dl className="tally">
             <div><dt>{t.admin.active}</dt><dd>{active}</dd></div>
             <div><dt>{t.admin.locked}</dt><dd>{locked}</dd></div>
+            {waiting > 0 && <div><dt>{t.admin.pending}</dt><dd>{waiting}</dd></div>}
           </dl>
         )}
       </PageHead>
@@ -47,12 +51,43 @@ export function AdminPage() {
             {teachers.data?.map((teacher) => {
               const isActive = teacher.status === 'active';
               const verb = isActive ? t.admin.lock : t.admin.unlock;
+              const details = [teacher.email, teacher.phone, teacher.referralSource && t.admin.from(t.onboarding.referrals[teacher.referralSource])];
+              if (teacher.status === 'pending') {
+                return (
+                  <li key={teacher.id} data-key={teacher.id} className="is-pending">
+                    <Avatar name={teacher.displayName} url={teacher.avatarUrl} />
+                    <span className="grow">
+                      <span className="person-name">{teacher.displayName}</span>
+                      <span className="muted">{details.filter(Boolean).join(' · ')}</span>
+                    </span>
+                    <span className="tag tag-pending">{t.admin.pending}</span>
+                    <button
+                      className="secondary"
+                      aria-label={`${t.admin.approve} ${teacher.displayName}`}
+                      disabled={setLock.isPending}
+                      onClick={() => setLock.mutate({ id: teacher.id, action: 'approve' })}
+                    >
+                      <Icon name="check" />
+                      <span>{t.admin.approve}</span>
+                    </button>
+                    <button
+                      className="danger ghost"
+                      aria-label={`${t.admin.reject} ${teacher.displayName}`}
+                      disabled={setLock.isPending}
+                      onClick={() => setLock.mutate({ id: teacher.id, action: 'lock' })}
+                    >
+                      <Icon name="lock" />
+                      <span>{t.admin.reject}</span>
+                    </button>
+                  </li>
+                );
+              }
               return (
                 <li key={teacher.id} data-key={teacher.id} className={isActive ? undefined : 'is-locked'}>
-                  <span className="person-initial" aria-hidden="true">{teacher.displayName.trim().charAt(0).toUpperCase()}</span>
+                  <Avatar name={teacher.displayName} url={teacher.avatarUrl} />
                   <span className="grow">
                     <span className="person-name">{teacher.displayName}</span>
-                    <span className="muted">{teacher.email}</span>
+                    <span className="muted">{details.filter(Boolean).join(' · ')}</span>
                   </span>
                   <span className={`tag${isActive ? ' tag-live' : ''}`}>{isActive ? t.admin.active : t.admin.locked}</span>
                   <button

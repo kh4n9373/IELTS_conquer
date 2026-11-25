@@ -7,6 +7,7 @@ from pydantic import AfterValidator, Field, model_validator
 
 from ..core.db import Conn, Role, with_identity, write_audit
 from ..core.http import Body, CtxDep, GuardedRoute, HttpError, IdentityDep, access, not_found
+from ..grading import stats
 from .classes import lock_active_class
 
 router = APIRouter(route_class=GuardedRoute)
@@ -289,6 +290,88 @@ def cancel_assignment(id: UUID, ctx: CtxDep, identity: IdentityDep) -> None:
         lock_editable(tx, id)
         tx.execute("update assignments set cancelled_at = %s where id = %s", (ctx.now(), id))
         write_audit(tx, action="assignment.cancel", entity="assignment", entity_id=id)
+
+
+@router.get("/api/assignments/{id}/stats")
+@access(TEACHER)
+def assignment_stats(id: UUID, ctx: CtxDep, identity: IdentityDep) -> Any:
+    """Class statistics from each student's latest graded attempt."""
+    with with_identity(ctx.pool, identity) as tx:
+        head = tx.execute(
+            """select g.test_id, t.duration_minutes from assignments g join tests t on t.id = g.test_id
+               where g.id = %s""",
+            (id,),
+        ).fetchone()
+        if head is None:
+            raise not_found()
+        qrows = tx.execute(
+            """select q.number, q.question_type, q.prompt, q.options, s.title, s.units_primary,
+                      e.correct as explanation, e.source
+               from questions q join sections s on s.id = q.section_id
+               left join keys.question_explanations e on e.question_id = q.id
+               where q.test_id = %s order by q.number""",
+            (head["test_id"],),
+        ).fetchall()
+        attempts = tx.execute(
+            """select distinct on (a.student_id) a.id, a.student_id, u.display_name, a.started_at,
+                      coalesce(a.finalized_at, a.deadline_at) as ended_at,
+                      r.id as run_id, r.correct, r.total, r.percent, r.band
+               from attempts a join users u on u.id = a.student_id
+               join lateral (select * from keys.grading_runs x where x.attempt_id = a.id
+                             order by x.run desc limit 1) r on true
+               where a.assignment_id = %s and a.status <> 'in_progress'
+               order by a.student_id, a.number desc""",
+            (id,),
+        ).fetchall()
+        runs = [a["run_id"] for a in attempts]
+        ids = [a["id"] for a in attempts]
+        items = tx.execute(
+            """select run_id, question_number, given, correct, accepted from keys.grading_items
+               where run_id = any(%s)""",
+            (runs,),
+        ).fetchall()
+        saves = tx.execute(
+            """select attempt_id, question_number, saved_at, marked_for_review from attempt_answers
+               where attempt_id = any(%s)""",
+            (ids,),
+        ).fetchall()
+    questions = [
+        stats.Question(
+            number=q["number"],
+            type=q["question_type"],
+            prompt=q["prompt"],
+            options=list(q["options"]),
+            topic=(q["units_primary"][0] if q["units_primary"] else q["title"]).strip() or q["title"],
+            explanation=q["explanation"],
+            explanation_source=q["source"],
+        )
+        for q in qrows
+    ]
+    graded = [
+        stats.Graded(
+            student_id=str(a["student_id"]),
+            name=a["display_name"],
+            attempt_id=str(a["id"]),
+            started_at=a["started_at"],
+            ended_at=a["ended_at"],
+            correct=a["correct"],
+            total=a["total"],
+            percent=float(a["percent"]),
+            band=a["band"],
+            items={
+                i["question_number"]: stats.Item(i["given"], i["correct"], list(i["accepted"]))
+                for i in items
+                if i["run_id"] == a["run_id"]
+            },
+            saves={
+                s["question_number"]: stats.Save(s["saved_at"], s["marked_for_review"])
+                for s in saves
+                if s["attempt_id"] == a["id"]
+            },
+        )
+        for a in attempts
+    ]
+    return stats.build_stats(questions, graded, head["duration_minutes"] * 60)
 
 
 @router.get("/api/my/assignments")

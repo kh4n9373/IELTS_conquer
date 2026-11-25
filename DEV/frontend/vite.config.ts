@@ -33,6 +33,8 @@ export default defineConfig({
   plugins: [react(), pdfjsWasm()],
   server: {
     port: 5173,
+    // Let students reach the dev server through an ngrok tunnel.
+    allowedHosts: ['.ngrok-free.app', '.ngrok.app'],
     proxy: { '/api': process.env.API_URL ?? 'http://127.0.0.1:3000' },
   },
 });

@@ -17,4 +17,6 @@ export function useMe() {
   });
 }
 
+export const needsSetup = (me: Me) => me.role !== 'admin' && me.onboardedAt == null;
+
 export const homeFor = (role: Me['role']) => ({ admin: '/admin', teacher: '/classes', student: '/home' })[role];

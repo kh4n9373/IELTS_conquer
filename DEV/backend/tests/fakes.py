@@ -134,3 +134,20 @@ def make_jbig2_pdf() -> bytes:
     page_info = struct.pack(">IIIIBH", 64, 64, 0, 0, 0, 0)
     region = struct.pack(">IIIIB", 64, 64, 0, 0, 0) + bytes([1]) + mmr
     return _image_pdf("JBIG2Decode", segment(0, 48, page_info) + segment(1, 38, region), 1)
+
+
+class FakeGoogle:
+    """Accepts `ok:<email>:<name>` credentials; anything else is refused."""
+
+    client_id = "test-client"
+
+    def verify(self, credential: str):  # type: ignore[no-untyped-def]
+        from npa_api.core.google import GoogleError, GoogleIdentity
+
+        kind, _, rest = credential.partition(":")
+        if kind == "down":
+            raise GoogleError(unavailable=True)
+        if kind != "ok":
+            raise GoogleError
+        email, _, name = rest.partition(":")
+        return GoogleIdentity(email=email, name=name, picture=f"https://pic.test/{email.lower()}.png")

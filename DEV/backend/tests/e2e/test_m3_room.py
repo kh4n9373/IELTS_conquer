@@ -8,7 +8,9 @@ import pytest
 from fakes import make_pdf
 from playwright.sync_api import Browser, BrowserContext, Page, expect, sync_playwright
 from test_m1 import PASSWORD, WEB_URL, login
-from test_m1 import servers as servers  # noqa: PLC0414  (reused fixture: API with in-memory files + web dev server)
+from test_m1 import (
+    servers as servers,  # noqa: PLC0414  (reused fixture: API with in-memory files + web dev server)
+)
 
 TEACHER = "room-teacher@test.local"
 STUDENT = "room-student@test.local"

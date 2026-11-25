@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useMe } from '../../app/session';
-import { Disclosure, Empty, ErrorAlert, Icon, Loading, order, PageHead } from '../../components/ui';
+import { Disclosure, Empty, ErrorAlert, Icon, Loading, order, PageHead, useConfirm } from '../../components/ui';
 import { api, type ClassDetail, type ClassSummary } from '../../lib/api';
 import { deviceKind, examApi, type Assignment, type AssignmentMode, type MyAssignment, type ReleasePolicy } from '../../lib/exam-api';
 import { useI18n, type Lang } from '../../lib/i18n';
@@ -242,6 +242,14 @@ function MyAssignments() {
     mutationFn: (id: string) => examApi.startAttempt(id, deviceKind()),
     onSuccess: ({ attemptId }) => navigate(`/exam/${attemptId}`, { viewTransition: true }),
   });
+  const { ask, dialog } = useConfirm();
+  const confirmStart = (row: MyAssignment) => ask({
+    title: t.my.startAsk,
+    body: t.my.startBody(row.testTitle ?? t.my.untitled, row.durationMinutes, row.maxAttempts - row.attemptsUsed),
+    action: t.my.startYes,
+    tone: 'go',
+    run: () => start.mutate(row.id),
+  });
 
   const actionOf = (row: MyAssignment): Action => {
     const used = row.attemptsUsed >= row.maxAttempts;
@@ -250,7 +258,7 @@ function MyAssignments() {
       return { label: t.my.cont, run: () => navigate(`/exam/${id}`, { viewTransition: true }), primary: false };
     }
     if (row.status === 'open' && !used) {
-      return { label: t.my.start, run: () => start.mutate(row.id), primary: true };
+      return { label: t.my.start, run: () => confirmStart(row), primary: true };
     }
     if (row.attemptsUsed > 0 && row.latestAttemptId) {
       const id = row.latestAttemptId;
@@ -287,6 +295,7 @@ function MyAssignments() {
           })}
         </ul>
       </section>
+      {dialog}
     </>
   );
 }

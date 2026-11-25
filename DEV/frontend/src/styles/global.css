@@ -105,6 +105,8 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 .primary-wide, .button-link { width: 100%; justify-content: space-between; min-height: 52px; padding-inline: 22px; }
 
 button.secondary { background: transparent; color: var(--text); border-color: var(--line-strong); }
+.button-link.secondary { background: transparent; color: var(--text); border: 1px solid var(--line-strong); }
+.people .button-link { width: auto; min-height: 40px; gap: 10px; }
 button.danger { background: transparent; color: var(--pen); border-color: color-mix(in srgb, var(--pen) 45%, transparent); }
 button.danger::before { background: var(--pen); }
 @media (hover: hover) { button.danger:hover:not(:disabled) { color: #fff; border-color: var(--pen); } }
@@ -131,7 +133,7 @@ fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: 8px; min-width:
   transition: transform 0.55s var(--ease);
 }
 .input-wrap:focus-within::after { transform: scaleX(1); }
-input[type='text'], input[type='email'], input[type='password'], input[type='number'] {
+input[type='text'], input[type='email'], input[type='password'], input[type='number'], input[type='tel'], .field select {
   position: relative; z-index: 1; width: 100%; min-height: 48px; padding: 10px 2px;
   font: inherit; font-size: 1.0625rem; color: inherit;
   background: transparent; border: 0; border-bottom: 1.5px solid var(--line-strong); border-radius: 0;
@@ -424,3 +426,43 @@ button.disclosure-toggle::before { background: var(--paper-2); }
 .content-editor fieldset { border: 1px solid var(--line); padding: 16px; display: grid; gap: 10px; min-width: 0; }
 .content-editor textarea { width: 100%; min-height: 80px; padding: 8px; font: inherit; }
 .content-editor label { display: grid; gap: 4px; }
+
+.google-block { display: grid; gap: 14px; margin-top: 4px; }
+.google-or { display: flex; align-items: center; gap: 12px; margin: 0; color: var(--muted); font-size: 0.8125rem; }
+.google-or::before, .google-or::after { content: ''; flex: 1; border-top: 1px solid var(--line); }
+.google-slot { min-height: 44px; display: flex; justify-content: center; }
+
+/* Avatars: a Google photo or the first letter of the name. */
+.avatar { flex: none; display: block; border-radius: 50%; object-fit: cover; background: var(--paper-2); }
+.avatar-initial { display: grid; place-items: center; font-family: var(--serif); color: var(--ink); }
+.people li .avatar { width: 40px; height: 40px; }
+.people li.is-pending { background: rgb(255 255 255 / 0.55); }
+.tag-pending { color: var(--ink); border-color: var(--ink); border-style: dashed; }
+
+/* Onboarding */
+.onboard-who { display: flex; align-items: center; gap: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 3px; }
+.onboard-who .grow, .profile-head .grow { display: grid; gap: 2px; min-width: 0; }
+.onboard-back { justify-self: start; padding: 0; min-height: 0; background: none; border: 0; color: var(--muted); font: inherit; font-size: 0.875rem; cursor: pointer; }
+.onboard-back::before { display: none; }
+button.onboard-back:hover:not(:disabled) { color: var(--ink); }
+.onboard-back strong { color: var(--ink); }
+.role-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+button.role-card {
+  display: grid; justify-content: stretch; justify-items: start; align-content: start; gap: 8px; min-height: 150px; padding: 20px 18px; text-align: left;
+  color: var(--ink); background: transparent; border: 1.5px solid var(--line-strong); border-radius: 3px;
+  font-weight: 400; transition: border-color 0.2s, background-color 0.2s, transform 0.3s var(--ease);
+}
+button.role-card::before { display: none; }
+@media (hover: hover) { button.role-card:hover:not(:disabled) { color: var(--ink); border-color: var(--ink); background: var(--mark); transform: translateY(-2px); } }
+button.role-card:focus-visible { outline: 2px solid var(--pen); outline-offset: 2px; }
+.role-card-title { font-family: var(--serif); font-size: 1.375rem; font-weight: 600; }
+
+/* Profile */
+.profile-head { display: flex; align-items: center; gap: clamp(16px, 3vw, 28px); margin-bottom: clamp(24px, 4vw, 44px); }
+.profile-head h1 { margin: 2px 0; }
+.profile-facts { display: grid; margin: 0 0 28px; }
+.profile-facts > div { display: grid; grid-template-columns: minmax(120px, 200px) 1fr; gap: 12px; padding: 13px 4px; border-bottom: 1px solid var(--line); }
+.profile-facts dt { color: var(--muted); font-size: 0.875rem; }
+.profile-facts dd { margin: 0; font-weight: 500; }
+.profile-classes { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.profile-classes li { padding: 10px 14px; border: 1px solid var(--line); border-radius: 3px; }

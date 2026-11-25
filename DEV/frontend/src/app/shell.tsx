@@ -1,12 +1,12 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Navigate, NavLink, Outlet, useLocation } from 'react-router';
 import { api, type Me } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 import { gsap, reducedMotion } from '../lib/motion';
 import type { Copy } from '../locales/vi';
-import { homeFor, useMe } from './session';
-import { Brand, ErrorAlert, Icon, LangSwitch, PageLoader, type IconName } from '../components/ui';
+import { homeFor, needsSetup, useMe } from './session';
+import { Avatar, Brand, ErrorAlert, Icon, LangSwitch, PageLoader, type IconName } from '../components/ui';
 
 /** Only screens that exist today get a tab. Upcoming areas are listed on the student home. */
 const TABS: Record<Me['role'], [string, keyof Copy['nav'], IconName][]> = {
@@ -58,6 +58,72 @@ function TopNav({ role }: { role: Me['role'] }) {
   );
 }
 
+/** Account chip that opens a small menu: profile, settings and log out live here, not in the bar. */
+function UserMenu({ me, onLogout, loggingOut }: { me: Me; onLogout: () => void; loggingOut: boolean }) {
+  const { t } = useI18n();
+  const { pathname } = useLocation();
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => setOpen(false), [pathname]);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => {
+      if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setOpen(false);
+        boxRef.current?.querySelector<HTMLButtonElement>('.top-user')?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const active = pathname.startsWith('/profile') || pathname.startsWith('/settings');
+  return (
+    <div className="user-menu" ref={boxRef}>
+      <button
+        type="button"
+        className={`top-user${active ? ' active' : ''}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls="user-menu-list"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <Avatar name={me.displayName} url={me.avatarUrl} size={32} />
+        <span className="top-user-text">
+          <span className="user">{me.displayName}</span>
+          <span className="top-role">{t.roles[me.role]}</span>
+        </span>
+      </button>
+      {open && (
+        <div className="user-menu-list" id="user-menu-list" role="menu">
+          <NavLink role="menuitem" to="/profile" viewTransition>
+            <Icon name="users" />
+            <span>{t.nav.profile}</span>
+          </NavLink>
+          {me.role !== 'admin' && (
+            <NavLink role="menuitem" to="/settings" viewTransition>
+              <Icon name="settings" />
+              <span>{t.nav.settings}</span>
+            </NavLink>
+          )}
+          <button role="menuitem" type="button" className="user-menu-out" onClick={onLogout} disabled={loggingOut}>
+            <Icon name="out" />
+            <span>{t.nav.logout}</span>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Shell() {
   const me = useMe();
   const location = useLocation();
@@ -74,6 +140,8 @@ export function Shell() {
   if (me.isPending) return <PageLoader />;
   if (me.isError) return <main className="page-error"><ErrorAlert error={me.error} /></main>;
   if (!me.data) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  // A new account answers the setup screens once before anything else.
+  if (needsSetup(me.data)) return <Navigate to="/setup" replace />;
 
   // The exam room is the whole screen: no app bar, so nothing else competes during the test.
   if (location.pathname.startsWith('/exam/')) return <Outlet />;
@@ -86,20 +154,7 @@ export function Shell() {
         <TopNav role={role} />
         <div className="top-tools">
           <LangSwitch />
-          <span className="top-user">
-            <span className="user">{displayName}</span>
-            <span className="top-role">{t.roles[role]}</span>
-          </span>
-          {role !== 'admin' && (
-            <NavLink className="top-link" to="/settings" viewTransition aria-label={t.nav.settings}>
-              <Icon name="settings" />
-              <span>{t.nav.settings}</span>
-            </NavLink>
-          )}
-          <button className="top-link" onClick={() => logout.mutate()} disabled={logout.isPending} aria-label={t.nav.logout}>
-            <Icon name="out" />
-            <span>{t.nav.logout}</span>
-          </button>
+          <UserMenu me={me.data} onLogout={() => logout.mutate()} loggingOut={logout.isPending} />
         </div>
       </header>
       <main id="content" className="page"><Outlet /></main>
