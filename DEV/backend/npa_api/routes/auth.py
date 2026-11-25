@@ -4,16 +4,16 @@ from typing import Any
 
 from fastapi import APIRouter, Request, Response
 
-from ..core.db import with_identity
+from ..core.google import GoogleError, GoogleIdentity
 from ..core.http import (
     SESSION_COOKIE,
     Body,
+    CredentialField,
     Ctx,
     CtxDep,
     EmailField,
     GuardedRoute,
     HttpError,
-    IdentityDep,
     LoginPassword,
     PasswordField,
     TokenField,
@@ -28,6 +28,7 @@ router = APIRouter(route_class=GuardedRoute)
 SESSION_TTL = timedelta(days=14)
 RESET_TTL = timedelta(hours=1)
 ACTIVATION_TTL = timedelta(hours=72)
+SIGNUP_TTL = timedelta(minutes=30)
 AUTH_LIMIT = 10
 
 
@@ -50,9 +51,40 @@ def send_password_link(ctx: Ctx, email: str, ttl: timedelta, subject: str) -> bo
     return True
 
 
+def start_session(ctx: Ctx, response: Response, user_id: Any) -> dict[str, Any]:
+    token = new_token()
+    with ctx.pool.connection() as conn:
+        conn.execute(
+            "select app.session_create(%s, %s, %s)", (user_id, hash_token(token), ctx.now() + SESSION_TTL)
+        )
+    response.set_cookie(
+        SESSION_COOKIE,
+        token,
+        path="/",
+        httponly=True,
+        samesite="lax",
+        secure=ctx.secure_cookies,
+        max_age=int(SESSION_TTL.total_seconds()),
+    )
+    return {"id": user_id}
+
+
+def verify_google(ctx: Ctx, credential: str) -> GoogleIdentity:
+    if ctx.google is None:
+        raise HttpError(503, "google_unavailable")
+    try:
+        return ctx.google.verify(credential)
+    except GoogleError as err:
+        raise HttpError(503 if err.unavailable else 401, str(err)) from err
+
+
 class LoginBody(Body):
     email: EmailField
     password: LoginPassword
+
+
+class GoogleBody(Body):
+    credential: CredentialField
 
 
 class ForgotBody(Body):
@@ -75,21 +107,48 @@ def login(body: LoginBody, ctx: CtxDep, response: Response) -> dict[str, Any]:
     if not verify_password(body.password, user["password_hash"]) or user["status"] != "active":
         raise HttpError(401, "invalid_credentials")
 
-    token = new_token()
+    return start_session(ctx, response, user["id"])
+
+
+@router.get("/api/auth/config")
+@access("public")
+def auth_config(ctx: CtxDep) -> dict[str, Any]:
+    return {"googleClientId": ctx.google.client_id if ctx.google else None}
+
+
+@router.post("/api/auth/google")
+@access("public", limit=AUTH_LIMIT)
+def google_login(body: GoogleBody, ctx: CtxDep, response: Response) -> dict[str, Any]:
+    identity = verify_google(ctx, body.credential)
+    with ctx.pool.connection() as conn:
+        user = conn.execute("select * from app.login_lookup(%s)", (identity.email,)).fetchone()
+    if user is None:
+        return _signup_ticket(ctx, identity)
+    if user["status"] == "pending":
+        raise HttpError(403, "teacher_pending")
+    if user["status"] != "active":
+        raise HttpError(401, "invalid_credentials")
+    with ctx.pool.connection() as conn:
+        conn.execute("select app.google_touch(%s, %s)", (user["id"], identity.picture))
+    return {**start_session(ctx, response, user["id"]), "next": "home"}
+
+
+def _signup_ticket(ctx: Ctx, identity: GoogleIdentity) -> dict[str, Any]:
+    """No account yet: hold the verified identity while the person fills in onboarding."""
+    ticket = new_token()
+    name = identity.name.strip()[:120] or identity.email.split("@")[0][:120]
     with ctx.pool.connection() as conn:
         conn.execute(
-            "select app.session_create(%s, %s, %s)", (user["id"], hash_token(token), ctx.now() + SESSION_TTL)
+            "select app.signup_ticket_create(%s, %s, %s, %s, %s)",
+            (hash_token(ticket), identity.email, name, identity.picture, ctx.now() + SIGNUP_TTL),
         )
-    response.set_cookie(
-        SESSION_COOKIE,
-        token,
-        path="/",
-        httponly=True,
-        samesite="lax",
-        secure=ctx.secure_cookies,
-        max_age=int(SESSION_TTL.total_seconds()),
-    )
-    return {"id": user["id"]}
+    return {
+        "next": "onboarding",
+        "ticket": ticket,
+        "email": identity.email.strip().lower(),
+        "name": name,
+        "avatarUrl": identity.picture,
+    }
 
 
 @router.post("/api/auth/logout", status_code=204)
@@ -118,13 +177,3 @@ def reset(body: ResetBody, ctx: CtxDep) -> None:
         ).fetchone()
     if row is None or not row["ok"]:
         raise HttpError(400, "invalid_token")
-
-
-@router.get("/api/me")
-@access(("student", "teacher", "admin"))
-def me(ctx: CtxDep, identity: IdentityDep) -> Any:
-    with with_identity(ctx.pool, identity) as tx:
-        return tx.execute(
-            'select id, email, display_name as "displayName", role from users where id = %s',
-            (identity.user_id,),
-        ).fetchone()

@@ -1,6 +1,8 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router';
+import { GoogleButton } from '../components/google-button';
+import { useGoogleSignIn } from './auth';
 import { api, ApiError, type Me } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 import { ErrorAlert, Field, formValues, Icon, Loading, order } from '../components/ui';
@@ -72,6 +74,23 @@ function RegisterForm({ code }: { code: string }) {
   );
 }
 
+/** A new Google user finishes in onboarding with this code filled in; an existing student joins right away. */
+function GoogleJoin({ code }: { code: string }) {
+  const { t } = useI18n();
+  const join = useMutation({
+    mutationFn: () => api.post(`/api/invites/${encodeURIComponent(code)}/join`),
+    onSettled: () => window.location.assign('/'),
+  });
+  const google = useGoogleSignIn(() => join.mutate(), code);
+  return (
+    <>
+      <ErrorAlert error={google.error} />
+      <GoogleButton onCredential={(c) => google.mutate(c)} />
+      {google.isPending && <p className="muted">{t.common.loading}</p>}
+    </>
+  );
+}
+
 function JoinExisting({ code }: { code: string }) {
   const { t } = useI18n();
   const join = useMutation({
@@ -124,6 +143,7 @@ export function JoinPage() {
       {me.data && me.data.role !== 'student' && <p className="alert" role="alert"><span>{t.join.studentOnly}</span></p>}
       {!me.data && (
         <>
+          <GoogleJoin code={code} />
           <RegisterForm code={code} />
           <p className="muted">{t.join.haveAccount} <Link to="/login" state={{ from: `/join/${code}` }} viewTransition>{t.join.login}</Link></p>
         </>

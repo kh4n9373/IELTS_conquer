@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router';
 import { api, type ClassDetail, type ClassSummary, type Invite } from '../lib/api';
+import { examApi } from '../lib/exam-api';
 import { useI18n } from '../lib/i18n';
 import { useFreshItems } from '../lib/motion';
 import { Disclosure, Empty, ErrorAlert, Field, formValues, Icon, Loading, order, PageHead, Section, useConfirm } from '../components/ui';
@@ -107,6 +108,8 @@ export function ClassDetailPage() {
   const id = useParams().id ?? '';
   const client = useQueryClient();
   const detail = useQuery({ queryKey: ['class', id], queryFn: () => api.get<ClassDetail>(`/api/classes/${id}`) });
+  const assignments = useQuery({ queryKey: ['assignments'], queryFn: examApi.listAssignments });
+  const given = (assignments.data ?? []).filter((a) => a.classId === id);
   const refresh = () => {
     client.invalidateQueries({ queryKey: ['class', id] });
     client.invalidateQueries({ queryKey: ['classes'] });
@@ -182,6 +185,23 @@ export function ClassDetailPage() {
                 >
                   {t.classes.remove}
                 </button>
+              </li>
+            ))}
+          </ul>
+          <div className="section-head">
+            <h2>{t.classes.assignments(given.length)}</h2>
+          </div>
+          {assignments.isSuccess && given.length === 0 && <p className="muted">{t.classes.noAssignments}</p>}
+          <ul className="people">
+            {given.map((a) => (
+              <li key={a.id}>
+                <span className="grow">
+                  <span className="person-name">{a.testTitle}</span>
+                  <span className="muted">{t.classes.dueOn(formatDate(a.dueAt))}</span>
+                </span>
+                <Link className="button-link secondary" to={`/assignments/${a.id}`} viewTransition>
+                  {t.classes.viewStats}
+                </Link>
               </li>
             ))}
           </ul>

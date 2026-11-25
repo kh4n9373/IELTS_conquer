@@ -37,8 +37,8 @@
 
 .au-meta { position: relative; z-index: 4; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 18px; margin-top: 22px; padding-top: 14px; color: #b9b9bf; font-size: 14px; border-top: 1px solid rgb(255 255 255 / 0.2); }
 .au-tools { display: inline-flex; align-items: center; gap: 12px; }
-.landing button.au-replay { min-height: 44px; padding: 0 14px; color: #fff; background: transparent; border: 1px solid rgb(255 255 255 / 0.35); font-size: 14px; font-weight: 800; }
-.landing button.au-replay::before { background: var(--mark); }
+.landing .au-replay { display: inline-flex; align-items: center; min-height: 44px; padding: 0 14px; color: #fff; background: transparent; border: 1px solid rgb(255 255 255 / 0.35); font-size: 14px; font-weight: 800; text-decoration: none; }
+.landing .au-replay::before { background: var(--mark); }
 
 .au-fx { position: absolute; inset: 0; z-index: 6; pointer-events: none; }
 .au-heart { position: absolute; width: 24px; height: 24px; margin: -12px; fill: var(--mark); stroke: #fff; stroke-width: 2; }

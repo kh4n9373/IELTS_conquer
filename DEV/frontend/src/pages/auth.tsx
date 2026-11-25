@@ -1,7 +1,9 @@
 import { useMutation } from '@tanstack/react-query';
 import type { FormEvent, ReactNode } from 'react';
-import { Link, useLocation, useSearchParams } from 'react-router';
-import { api } from '../lib/api';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
+import { api, type GoogleResult } from '../lib/api';
+import { savePending } from '../lib/onboarding';
+import { GoogleButton } from '../components/google-button';
 import { useI18n } from '../lib/i18n';
 import { Brand, ErrorAlert, Field, formValues, Icon, LangSwitch, Notice, order } from '../components/ui';
 
@@ -33,15 +35,30 @@ export function AuthLayout({ line, accent, note, children }: { line: string; acc
   );
 }
 
+/** Google sign-in: existing accounts go straight in, new ones to the first-run setup flow. */
+export function useGoogleSignIn(onSignedIn: () => void, inviteCode?: string) {
+  const navigate = useNavigate();
+  return useMutation({
+    mutationFn: (credential: string) => api.post<GoogleResult>('/api/auth/google', { credential }),
+    onSuccess: (res) => {
+      if (res.next === 'home') return onSignedIn();
+      savePending({ ...res, inviteCode });
+      navigate('/setup');
+    },
+  });
+}
+
 export function LoginPage() {
   const { t } = useI18n();
   const location = useLocation();
   const from = (location.state as { from?: string } | null)?.from;
+  // Full reload so no cached data from a previous account survives.
+  const done = () => window.location.assign(from?.startsWith('/') && !from.startsWith('//') ? from : '/');
   const login = useMutation({
     mutationFn: (body: Record<string, string>) => api.post('/api/auth/login', body),
-    // Full reload so no cached data from a previous account survives.
-    onSuccess: () => window.location.assign(from?.startsWith('/') && !from.startsWith('//') ? from : '/'),
+    onSuccess: done,
   });
+  const google = useGoogleSignIn(done);
   const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     login.mutate(formValues(e.currentTarget));
@@ -51,7 +68,7 @@ export function LoginPage() {
       <h1 className="in" style={order(1)}>{t.auth.login}</h1>
       <p className="muted in" style={order(2)}>{t.auth.loginHint}</p>
       <form className="stack in" style={order(3)} onSubmit={submit}>
-        <ErrorAlert error={login.error} />
+        <ErrorAlert error={login.error ?? google.error} />
         <Field label={t.common.email} name="email" type="email" autoComplete="username" required />
         <Field label={t.common.password} name="password" type="password" autoComplete="current-password" required />
         <button className="primary-wide" disabled={login.isPending}>
@@ -60,6 +77,7 @@ export function LoginPage() {
         </button>
         <Link className="quiet-link" to="/forgot-password" viewTransition>{t.auth.forgotLink}</Link>
       </form>
+      <GoogleButton onCredential={(c) => google.mutate(c)} />
     </AuthLayout>
   );
 }

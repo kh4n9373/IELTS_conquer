@@ -11,6 +11,7 @@ from starlette.exceptions import HTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .core.db import Pool
+from .core.google import GoogleVerifier
 from .core.http import Access, Ctx, GuardedRoute, HttpError, RateLimiter
 from .core.mailer import Mailer
 from .core.storage import FileStore
@@ -22,6 +23,7 @@ from .routes import (
     classes,
     consent,
     invites,
+    profile,
     test_files,
     test_import,
     test_keys,
@@ -92,6 +94,7 @@ def build_app(
     rate_limit: bool = True,
     lifespan: Any = None,
     store: FileStore | None = None,
+    google: GoogleVerifier | None = None,
 ) -> FastAPI:
     # Docs routes are off: they would be endpoints without an access rule.
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
@@ -103,6 +106,7 @@ def build_app(
         now=now or (lambda: datetime.now(UTC)),
         limiter=RateLimiter() if rate_limit else None,
         store=store,
+        google=google,
     )
     app.add_middleware(BodyLimit)
 
@@ -126,6 +130,7 @@ def build_app(
     # Added route by route: include_router wraps them, which would hide them from the guard check.
     for module in (
         auth,
+        profile,
         admin,
         classes,
         invites,

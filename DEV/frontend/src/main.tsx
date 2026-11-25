@@ -10,6 +10,8 @@ import { AssignmentDetailPage } from './pages/assignments/detail';
 import { AssignmentsPage } from './pages/assignments/list';
 import { ClassDetailPage, ClassesPage } from './pages/classes';
 import { JoinPage } from './pages/join';
+import { ProfilePage } from './pages/profile';
+import { SetupPage } from './pages/setup/setup';
 import { ExamRoomPage } from './pages/exam/room';
 import { ResultPage } from './pages/exam/result';
 import { ReviewPage } from './pages/exam/review';
@@ -65,6 +67,8 @@ const router = createBrowserRouter(
       <Route path="/forgot-password" element={<ForgotPage />} />
       <Route path="/reset-password" element={<ResetPage />} />
       <Route path="/join/:code" element={<JoinPage />} />
+      <Route path="/onboarding" element={<Navigate to="/setup" replace />} />
+      <Route path="/setup" element={<SetupPage />} />
       <Route element={<Shell />}>
         <Route element={<RoleGate roles={['admin']} />}>
           <Route path="/admin" element={<AdminPage />} />
@@ -95,6 +99,7 @@ const router = createBrowserRouter(
         <Route element={<RoleGate roles={['student', 'teacher']} />}>
           <Route path="/settings" element={<SettingsPage />} />
         </Route>
+        <Route path="/profile" element={<ProfilePage />} />
       </Route>
       </>}
       <Route path="*" element={<Navigate to="/" replace />} />

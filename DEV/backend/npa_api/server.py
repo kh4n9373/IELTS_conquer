@@ -8,6 +8,7 @@ from fastapi import FastAPI
 
 from .app import build_app
 from .core.db import open_pool
+from .core.google import GoogleVerifier, TokenInfoVerifier
 from .core.mailer import ConsoleMailer
 from .core.storage import FileStore, S3FileStore
 from .grading.settle import SweepThread
@@ -35,6 +36,12 @@ def create_store() -> FileStore | None:
     )
 
 
+def create_google() -> GoogleVerifier | None:
+    """Optional: without GOOGLE_CLIENT_ID the Google button is hidden and its routes return 503."""
+    client_id = os.environ.get("GOOGLE_CLIENT_ID", "").strip()
+    return TokenInfoVerifier(client_id) if client_id else None
+
+
 def create_app() -> FastAPI:
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
@@ -60,6 +67,7 @@ def create_app() -> FastAPI:
         secure_cookies=is_production(),
         lifespan=lifespan,
         store=create_store(),
+        google=create_google(),
     )
 
 

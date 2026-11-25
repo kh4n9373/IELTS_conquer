@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import person1 from '../../assets/authors/person1.webp';
 import person2 from '../../assets/authors/person2.webp';
 import person3 from '../../assets/authors/person3.webp';
+import donateQr from '../../assets/donate-qr.jpeg';
 import { Icon } from '../../components/ui';
 import { useI18n } from '../../lib/i18n';
 import { STATIC_PREVIEW } from '../../lib/preview';
@@ -153,8 +154,8 @@ export function AuthorsFooter() {
     donate.current?.showModal();
     if (calm) return;
     gsap.fromTo('.au-donate', { scale: 0.55, rotate: -7, y: 40, autoAlpha: 0 }, { scale: 1, rotate: 0, y: 0, autoAlpha: 1, duration: 0.55, ease: 'back.out(2)' });
-    gsap.fromTo('.au-donate img', { yPercent: 70, rotate: -18 }, { yPercent: 0, rotate: 0, duration: 0.8, delay: 0.14, ease: 'elastic.out(1, 0.55)' });
-    gsap.fromTo('.au-donate h3, .au-donate p, .au-donate button', { y: 16, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.45, stagger: 0.08, delay: 0.22, ease: 'power3.out' });
+    gsap.fromTo('.au-donate-in > img:first-child', { yPercent: 70, rotate: -18 }, { yPercent: 0, rotate: 0, duration: 0.8, delay: 0.14, ease: 'elastic.out(1, 0.55)' });
+    gsap.fromTo('.au-donate-qr, .au-donate h3, .au-donate button', { y: 16, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.45, stagger: 0.08, delay: 0.22, ease: 'power3.out' });
   });
   const onDonateClick = (e: MouseEvent<HTMLDialogElement>) => {
     if (e.target === donate.current) donate.current?.close();
@@ -204,7 +205,7 @@ export function AuthorsFooter() {
               <svg viewBox="0 0 24 24" aria-hidden="true" dangerouslySetInnerHTML={{ __html: HEART }} />
               {copy.footDonate}
             </button>
-            {!calm && <button type="button" className="au-replay" onClick={() => intro.current?.play(0)}>{copy.footReplay}</button>}
+            {!STATIC_PREVIEW && <Link className="au-replay" to="/login" viewTransition>{copy.login}</Link>}
           </span>
         </div>
       </div>
@@ -212,8 +213,8 @@ export function AuthorsFooter() {
       <dialog className="au-donate" ref={donate} aria-labelledby="donate-title" onClick={onDonateClick}>
         <div className="au-donate-in">
           <img src={person2} alt="" />
+          <img className="au-donate-qr" src={donateQr} alt={copy.donateQrAlt} />
           <h3 id="donate-title">{copy.donateTitle}</h3>
-          <p>{copy.donateBody}</p>
           <button type="button" onClick={() => donate.current?.close()}>{copy.donateClose}</button>
         </div>
       </dialog>

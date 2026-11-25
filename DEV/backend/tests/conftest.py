@@ -6,7 +6,7 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from fakes import MemoryFileStore
+from fakes import FakeGoogle, MemoryFileStore
 from fastapi.testclient import TestClient
 
 from npa_api.app import build_app
@@ -98,6 +98,7 @@ def h(db: TestDb) -> Iterator[Harness]:
         now=lambda: harness.now,
         rate_limit=False,
         store=harness.store,
+        google=FakeGoogle(),
     )
     with TestClient(app) as client:
         harness.client = client

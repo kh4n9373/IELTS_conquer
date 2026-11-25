@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { ErrorAlert, Loading, Notice, order, PageHead, useConfirm } from '../../components/ui';
 import { examApi, type AssignmentDetail, type AssignmentMode, type RecipientState, type ReleasePolicy } from '../../lib/exam-api';
 import { useI18n } from '../../lib/i18n';
 import { toIso, toLocal, useDateTime } from './list';
+import { mmss, StatsPanel, StatsTabs, statsCsv, type StatsTab } from './stats';
 import './assignments.css';
 
 function EditForm({ row, onDone }: { row: AssignmentDetail; onDone: (saved: boolean) => void }) {
@@ -90,6 +91,26 @@ export function AssignmentDetailPage() {
   const [editing, setEditing] = useState(false);
   const [saved, setSaved] = useState(false);
   const detail = useQuery({ queryKey: ['assignment', id], queryFn: () => examApi.getAssignment(id) });
+  const [params, setParams] = useSearchParams();
+  const anySubmitted = (detail.data?.students ?? []).some((s) => s.attempts > 0 && !(s.state === 'in_progress' && s.attempts === 1));
+  const statsQuery = useQuery({
+    queryKey: ['assignment', id, 'stats'],
+    queryFn: () => examApi.assignmentStats(id),
+    enabled: anySubmitted,
+  });
+  const stats = statsQuery.data?.summary ? statsQuery.data : undefined;
+  const rawTab = params.get('tab');
+  const tab: StatsTab = stats && (rawTab === 'questions' || rawTab === 'students') ? rawTab : 'overview';
+  const go = (next: Record<string, string>) => setParams({ ...Object.fromEntries(params), ...next }, { replace: true });
+  const downloadCsv = () => {
+    if (!stats) return;
+    const url = URL.createObjectURL(new Blob(['\ufeff' + statsCsv(stats)], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${(detail.data?.testTitle ?? 'assignment').replace(/[^\p{L}\p{N}]+/gu, '-')}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
   const cancel = useMutation({
     mutationFn: () => examApi.cancelAssignment(id),
     onSuccess: () => {
@@ -112,6 +133,7 @@ export function AssignmentDetailPage() {
         title={row?.testTitle ?? t.assignments.teacherTitle}
         lede={row ? t.assignments.detailMeta(row.className, t.assignments.status[row.status], dateTime(row.dueAt)) + (row.isTrial ? ` · ${t.assignments.trial}` : '') : undefined}
       >
+        {stats && <button type="button" className="secondary" onClick={downloadCsv}>{t.stats.exportCsv}</button>}
         {row && (
           <button type="button" className="secondary" disabled={locked || editing} onClick={() => { setSaved(false); setEditing(true); }}>{t.assignments.edit}</button>
         )}
@@ -127,18 +149,33 @@ export function AssignmentDetailPage() {
         )}
       </PageHead>
       <section className="stack in" style={order(3)}>
-        <ErrorAlert error={detail.error ?? cancel.error} />
+        <ErrorAlert error={detail.error ?? cancel.error ?? statsQuery.error} />
         {detail.isPending && <Loading />}
         {row && (
           <>
             {saved && !editing && <Notice>{t.assignments.saved}</Notice>}
             {editing && !locked && <EditForm row={row} onDone={(ok) => { setEditing(false); setSaved(ok); }} />}
             {started && <p className="lock-note">{t.assignments.startedLock}</p>}
+            {stats && <StatsTabs tab={tab} onTab={(next) => go({ tab: next })} />}
+            {stats && tab !== 'overview' && (
+              <StatsPanel
+                stats={stats}
+                tab={tab}
+                question={Number(params.get('q')) || 0}
+                student={params.get('s')}
+                onQuestion={(n) => go({ q: String(n) })}
+                onStudent={(sid) => go({ s: sid })}
+                onOpenQuestion={(n) => go({ tab: 'questions', q: String(n) })}
+              />
+            )}
+            {tab === 'overview' && <>
+            {anySubmitted && statsQuery.isSuccess && !stats && <Notice>{t.stats.empty}</Notice>}
             <div className="stat-row">
               <div className="stat"><strong>{count('not_started')}</strong>{t.assignments.notStarted}</div>
               <div className="stat"><strong>{count('in_progress')}</strong>{t.assignments.inProgress}</div>
               <div className="stat dark"><strong>{count('submitted')}</strong>{t.assignments.submitted}</div>
             </div>
+            {stats && <StatsPanel stats={stats} tab="overview" question={1} student={null} onQuestion={() => {}} onStudent={() => {}} />}
             <div className="table-scroll">
               <table className="asg-table">
                 <thead>
@@ -146,25 +183,48 @@ export function AssignmentDetailPage() {
                     <th scope="col">{t.assignments.student}</th>
                     <th scope="col">{t.assignments.state}</th>
                     <th scope="col">{t.assignments.attemptsCol}</th>
+                    {stats && <th scope="col">{t.stats.scoreCol}</th>}
+                    {stats && <th scope="col">{t.stats.timeCol}</th>}
+                    {stats && <th scope="col">{t.stats.bestTopic}</th>}
+                    {stats && <th scope="col">{t.stats.worstTopic}</th>}
                     <th scope="col">{t.assignments.note}</th>
+                    {stats && <th scope="col"><span className="sr-only">{t.stats.viewDetail}</span></th>}
                   </tr>
                 </thead>
                 <tbody>
-                  {students.map((s) => (
-                    <tr key={s.id}>
-                      <td>{s.name}</td>
-                      <td>{stateLabel[s.state]}</td>
-                      <td>{s.attempts}/{row.maxAttempts}</td>
-                      <td className="late">
-                        {s.lateCount > 0 && <span>{t.assignments.late(s.lateCount)}</span>}
-                        {s.late.map((l, i) => <span key={i} className="late-item">{t.assignments.lateItem(l.number, l.value)}</span>)}
-                      </td>
-                    </tr>
-                  ))}
+                  {students.map((s) => {
+                    const g = stats?.students.find((x) => x.id === s.id);
+                    const topicAt = (pick: (a: number, b: number) => boolean) => {
+                      if (!g || !stats || g.topics.length === 0) return '–';
+                      const k = g.topics.reduce((best, v, i) => (pick(v, g.topics[best] ?? 0) ? i : best), 0);
+                      return `${stats.topics[k]?.name ?? ''} ${g.topics[k] ?? 0}%`;
+                    };
+                    return (
+                      <tr key={s.id}>
+                        <td>{s.name}</td>
+                        <td>{stateLabel[s.state]}</td>
+                        <td>{s.attempts}/{row.maxAttempts}</td>
+                        {stats && <td className="strong">{g ? `${g.correct}/${g.total}` : '–'}</td>}
+                        {stats && <td>{g ? mmss(g.seconds) : '–'}</td>}
+                        {stats && <td>{topicAt((a, b) => a > b)}</td>}
+                        {stats && <td className="late">{topicAt((a, b) => a < b)}</td>}
+                        <td className="late">
+                          {s.lateCount > 0 && <span>{t.assignments.late(s.lateCount)}</span>}
+                          {s.late.map((l, i) => <span key={i} className="late-item">{t.assignments.lateItem(l.number, l.value)}</span>)}
+                        </td>
+                        {stats && (
+                          <td>
+                            {g && <button type="button" className="secondary st-qbtn" onClick={() => { go({ tab: 'students', s: s.id }); window.scrollTo({ top: 0 }); }}>{t.stats.viewDetail}</button>}
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
               {students.length === 0 && <p className="muted">{t.assignments.noStudents}</p>}
             </div>
+            </>}
           </>
         )}
       </section>

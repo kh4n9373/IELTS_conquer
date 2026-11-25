@@ -17,6 +17,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict
 from starlette.responses import Response
 
 from .db import Identity, Pool, Role
+from .google import GoogleVerifier
 from .mailer import Mailer
 from .security import hash_token
 from .storage import FileStore
@@ -71,6 +72,7 @@ class Ctx:
     now: Callable[[], datetime]
     limiter: RateLimiter | None
     store: FileStore | None = None
+    google: GoogleVerifier | None = None
 
 
 def access(rule: Access, limit: int | None = None) -> Callable[[F], F]:
@@ -190,6 +192,8 @@ EmailField = Annotated[str, AfterValidator(normalize_email)]
 PasswordField = Annotated[str, AfterValidator(_sized(8, 200))]
 LoginPassword = Annotated[str, AfterValidator(_sized(1, 200))]
 TokenField = Annotated[str, AfterValidator(_sized(1, 200))]
+# Google ID tokens are signed JWTs, well over 1000 characters.
+CredentialField = Annotated[str, AfterValidator(_sized(1, 8192))]
 NameField = Annotated[str, AfterValidator(_sized(1, 120, trim=True))]
 PassageField = Annotated[str, AfterValidator(_sized(0, 50000))]
 PromptField = Annotated[str, AfterValidator(_sized(0, 2000, trim=True))]
@@ -208,6 +212,7 @@ DOMAIN_ERRORS: dict[str, tuple[int, str]] = {
     "test_archived": (409, "test_archived"),
     "attempt_closed": (409, "attempt_closed"),
     "invalid_items": (400, "invalid_input"),
+    "ticket_invalid": (400, "ticket_invalid"),
 }
 
 
